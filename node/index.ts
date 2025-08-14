@@ -1,9 +1,12 @@
 import { PaymentProviderService } from '@vtex/payment-provider'
 
-import { clients } from './clients'
 import TestSuiteApprover from './connector'
+import { clients } from './clients'
 
-export default new PaymentProviderService({
+// Create enhanced service with middlewares
+const service = new PaymentProviderService({
   clients,
   connector: TestSuiteApprover,
 })
+
+export default service
