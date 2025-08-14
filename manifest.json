@@ -25,6 +25,36 @@
         "host": "heimdall.vtexpayments.com.br",
         "path": "/api/payment-provider/callback/*"
       }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "api.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "apisandbox.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "auth.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "authsandbox.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "*.myvtex.com"
+      }
     }
   ],
   "billingOptions": {
