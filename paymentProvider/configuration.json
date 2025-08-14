@@ -9,23 +9,19 @@
   "customFields": [
     {
       "name": "merchantId",
-      "type": "text",
-      "required": true
+      "type": "text"
     },
     {
       "name": "merchantKey",
-      "type": "text",
-      "required": true
+      "type": "text"
     },
     {
       "name": "clientSecret",
-      "type": "password",
-      "required": true
+      "type": "password"
     },
     {
       "name": "lomadeeToken",
-      "type": "password",
-      "required": true
+      "type": "password"
     }
   ]
 }
