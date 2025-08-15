@@ -1,15 +1,17 @@
-import type {
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/ban-ts-ignore */
+import {
   IOClients,
   ParamsContext,
   RecorderState,
   RouteHandler,
+  method as vtexMethod,
 } from '@vtex/api'
-import { method as vtexMethod } from '@vtex/api'
 
-import type { Clients } from '../../clients'
+import { Clients } from '../../clients'
 import { injectLogger } from '../datadog/log/inject-logger'
-import type { MethodOptions } from '../../typings/custom'
 import { errorMiddleware } from './error-middleware'
+import { MethodOptions } from '../../types/custom'
 
 const arrayLog = [injectLogger, errorMiddleware]
 
@@ -24,7 +26,7 @@ export function method<
   | Array<RouteHandler<Clients, RecorderState, CustomContextFields>> {
   const newObj: any = {}
 
-  Object.keys(options).forEach((m) => {
+  Object.keys(options).forEach(m => {
     // @ts-ignore
     newObj[m] = [...arrayLog, ...options[m]]
   })

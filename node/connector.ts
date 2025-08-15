@@ -19,6 +19,7 @@ import { CreatePixSaleRequest } from './clients/braspag/types'
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
 import { Clients } from './clients'
+import { Logger } from './tools/datadog/datadog'
 
 const authorizationsBucket = 'authorizations'
 const pixAuthDataBucket = 'pix-auth-data'
@@ -53,9 +54,16 @@ const getPixAuthData = async (vbase: VBase, paymentId: string) =>
   vbase.getJSON<PixAuthData | undefined>(pixAuthDataBucket, paymentId, true)
 
 export default class BraspagConnector extends PaymentProvider<Clients> {
-  // This class needs modifications to pass the test suit.
-  // Refer to https://help.vtex.com/en/tutorial/payment-provider-protocol#4-testing
-  // in order to learn about the protocol and make the according changes.
+  protected context!: PaymentProviderContext
+
+  private initLogger() {
+    if (!this.context.logger) {
+      this.context.logger = new Logger(
+        this.context,
+        this.context.clients.datadog
+      )
+    }
+  }
 
   private async saveAndRetry(
     req: AuthorizationRequest,
@@ -68,6 +76,8 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
   public async authorize(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
+    this.initLogger()
+
     if (this.isTestSuite) {
       const persistedResponse = await getPersistedAuthorizationResponse(
         this.context.clients.vbase,
@@ -256,6 +266,8 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
   }
 
   public async refund(refund: RefundRequest): Promise<RefundResponse> {
+    this.initLogger()
+
     if (this.isTestSuite) {
       return Refunds.deny(refund)
     }
@@ -318,6 +330,8 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
     paymentId: string
     requestData: { body: string }
   }) {
+    this.initLogger()
+
     try {
       const parsed = JSON.parse(inbound.requestData?.body ?? '{}')
 

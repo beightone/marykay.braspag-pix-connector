@@ -1,4 +1,4 @@
-import type { Datadog } from './datadog-client'
+import type { Datadog } from '../../clients/datadog'
 import type { DatadogOptions, LogType } from './types'
 import { datadogLog } from './datadog_parser'
 
