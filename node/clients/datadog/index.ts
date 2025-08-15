@@ -1,5 +1,5 @@
-import type { IOContext, InstanceOptions } from '@vtex/api'
-import { ExternalClient } from '@vtex/api'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { ExternalClient, IOContext, InstanceOptions } from '@vtex/api'
 
 export class Datadog extends ExternalClient {
   constructor(ctx: IOContext, options?: InstanceOptions) {

@@ -3,6 +3,7 @@ import { ClientsConfig, IOClients } from '@vtex/api'
 import { BraspagClient } from './braspag'
 import { GiftcardsIntegrationClient } from './giftcard-integration'
 import { StoreServicesClient } from './store-services'
+import { Datadog } from './datadog'
 
 export class Clients extends IOClients {
   public get braspag() {
@@ -15,6 +16,10 @@ export class Clients extends IOClients {
 
   public get giftcardsIntegration() {
     return this.getOrSet('giftcardsIntegration', GiftcardsIntegrationClient)
+  }
+
+  public get datadog() {
+    return this.getOrSet('datadog', Datadog)
   }
 }
 

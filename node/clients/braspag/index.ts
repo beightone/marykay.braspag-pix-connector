@@ -1,11 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ExternalClient, IOContext, InstanceOptions } from '@vtex/api'
 
 import {
   AuthenticateResponse,
   CreatePixSaleRequest,
   CreatePixSaleResponse,
-  VoidPixRequest,
-  VoidPixResponse,
+  // VoidPixRequest,
+  // VoidPixResponse,
 } from './types'
 
 const BRASPAG_API_URL = 'https://api.braspag.com.br'
@@ -120,39 +121,39 @@ export class BraspagClient extends ExternalClient {
     }
   }
 
-  public async voidPixPayment(
-    paymentId: string,
-    payload: VoidPixRequest
-  ): Promise<VoidPixResponse> {
-    const { logger } = this.context as any
+  // public async voidPixPayment(
+  //   paymentId: string,
+  //   payload: VoidPixRequest
+  // ): Promise<VoidPixResponse> {
+  //   const { logger } = this.context as any
 
-    try {
-      const headers = await this.getAuthHeaders()
+  //   try {
+  //     const headers = await this.getAuthHeaders()
 
-      logger?.info('BRASPAG_VOID_PIX_PAYMENT_REQUEST', {
-        paymentId,
-        amount: payload.Amount,
-      })
+  //     logger?.info('BRASPAG_VOID_PIX_PAYMENT_REQUEST', {
+  //       paymentId,
+  //       amount: payload.Amount,
+  //     })
 
-      const response = await this.http.put<VoidPixResponse>(
-        `/v2/sales/${paymentId}/void`,
-        payload,
-        { headers }
-      )
+  //     const response = await this.http.put<VoidPixResponse>(
+  //       `/v2/sales/${paymentId}/void`,
+  //       payload,
+  //       { headers }
+  //     )
 
-      logger?.info('BRASPAG_VOID_PIX_PAYMENT_SUCCESS', {
-        paymentId,
-        status: response.Status,
-        returnCode: response.ReturnCode,
-      })
+  //     logger?.info('BRASPAG_VOID_PIX_PAYMENT_SUCCESS', {
+  //       paymentId,
+  //       status: response.Status,
+  //       returnCode: response.ReturnCode,
+  //     })
 
-      return response
-    } catch (error) {
-      logger?.error('BRASPAG_VOID_PIX_PAYMENT_FAILED', {
-        paymentId,
-        error: error instanceof Error ? error.message : error,
-      })
-      throw error
-    }
-  }
+  //     return response
+  //   } catch (error) {
+  //     logger?.error('BRASPAG_VOID_PIX_PAYMENT_FAILED', {
+  //       paymentId,
+  //       error: error instanceof Error ? error.message : error,
+  //     })
+  //     throw error
+  //   }
+  // }
 }
