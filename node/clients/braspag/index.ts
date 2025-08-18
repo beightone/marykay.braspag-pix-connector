@@ -9,11 +9,11 @@ import {
   // VoidPixResponse,
 } from './types'
 
-const BRASPAG_API_URL = 'https://api.braspag.com.br'
-const BRASPAG_SANDBOX_API_URL = 'https://apisandbox.braspag.com.br'
-const BRASPAG_AUTH_URL = 'https://auth.braspag.com.br/oauth2/token'
+const BRASPAG_API_URL = 'http://api.braspag.com.br'
+const BRASPAG_SANDBOX_API_URL = 'http://apisandbox.braspag.com.br'
+const BRASPAG_AUTH_URL = 'http://auth.braspag.com.br/oauth2/token'
 const BRASPAG_SANDBOX_AUTH_URL =
-  'https://authsandbox.braspag.com.br/oauth2/token'
+  'http://authsandbox.braspag.com.br/oauth2/token'
 
 export class BraspagClient extends ExternalClient {
   private merchantId: string
@@ -30,9 +30,12 @@ export class BraspagClient extends ExternalClient {
         ...options,
         headers: {
           'X-Vtex-Use-Https': 'true',
+          'VTEX-API-Is-TestSuite': 'true',
         },
       }
     )
+
+    console.log('context', { context })
 
     this.merchantId = context.settings.merchantId
     this.clientSecret = context.settings.clientSecret
