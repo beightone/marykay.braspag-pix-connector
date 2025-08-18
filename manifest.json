@@ -60,5 +60,36 @@
   "billingOptions": {
     "type": "free"
   },
+  "settingsSchema": {
+    "title": "Configuration",
+    "type": "object",
+    "properties": {
+      "merchantId": {
+        "title": "[Braspag] MerchantId",
+        "type": "string"
+      },
+      "merchantKey": {
+        "title": "[Braspag] MerchantKey",
+        "type": "string"
+      },
+      "clientSecret": {
+        "title": "[Braspag] ClientSecret",
+        "type": "string"
+      },
+      "notifyTargetWorkspace": {
+        "title": "Notify target workspace",
+        "description": "When enabled, notifications from Braspag will be duplicated to the specified workspace",
+        "type": "string"
+      },
+      "appKey": {
+        "title": "VTEX App Key",
+        "type": "string"
+      },
+      "appToken": {
+        "title": "VTEX App Token",
+        "type": "string"
+      }
+    }
+  },
   "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
 }
