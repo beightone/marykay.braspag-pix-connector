@@ -1,5 +1,5 @@
 {
-  "name": "BrasPagPixConnector",
+  "name": "CieloCommerce",
   "paymentMethods": [
     {
       "name": "Pix",
@@ -17,10 +17,6 @@
     },
     {
       "name": "clientSecret",
-      "type": "password"
-    },
-    {
-      "name": "lomadeeToken",
       "type": "password"
     }
   ]
