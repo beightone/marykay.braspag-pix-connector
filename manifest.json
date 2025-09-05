@@ -58,7 +58,12 @@
     }
   ],
   "billingOptions": {
-    "type": "free"
+    "type": "free",
+    "support": {
+      "email": "gabriel.gotardo@b8one.com",
+      "url": "https://support.com/hc/requests"
+    },
+    "availableCountries": ["*"]
   },
   "settingsSchema": {
     "title": "Configuration",
@@ -91,5 +96,6 @@
       }
     }
   },
+
   "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
 }
