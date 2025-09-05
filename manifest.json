@@ -1,7 +1,7 @@
 {
   "name": "braspag-pix-connector",
   "vendor": "marykay",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "title": "Braspag Pix Connector",
   "description": "Connector for Braspag Split Pix",
   "builders": {
