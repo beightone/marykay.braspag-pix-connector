@@ -13,8 +13,8 @@
     "@types/ramda": "types/npm-ramda#dist",
     "@vtex/api": "6.45.6",
     "@vtex/test-tools": "^1.0.0",
-    "typescript": "3.9.7",
-    "vtex.payment-provider-example": "http://vtex.vtexassets.com/_v/public/typings/v1/vtex.payment-provider-example@1.0.2/public/_types/react"
+    "marykay.braspag-pix-connector": "http://marykay.vtexassets.com/_v/public/typings/v1/marykay.braspag-pix-connector@0.0.2-beta.0/public/_types/react",
+    "typescript": "3.9.7"
   },
   "scripts": {
     "lint": "tsc --noEmit --pretty"
