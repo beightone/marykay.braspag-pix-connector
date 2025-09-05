@@ -1,7 +1,7 @@
 {
   "name": "braspag-pix-connector",
   "vendor": "marykay",
-  "version": "0.0.2-beta.0",
+  "version": "0.0.2",
   "title": "Braspag Pix Connector",
   "description": "Connector for Braspag Split Pix",
   "builders": {
@@ -96,6 +96,5 @@
       }
     }
   },
-
   "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
 }
