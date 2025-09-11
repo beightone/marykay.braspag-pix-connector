@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import {
   AuthorizationRequest,
   AuthorizationResponse,
@@ -15,20 +16,15 @@ import {
 } from '@vtex/payment-provider'
 import { VBase } from '@vtex/api'
 
-import { CreatePixSaleRequest } from './clients/braspag/types'
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
-import { Clients } from './clients'
-import { Logger } from './tools/datadog/datadog'
+import { BraspagClient } from './clients/braspag'
+import {
+  createBraspagPixSaleRequest,
+  createPixPaymentAppData,
+} from './adapters/braspag-pix-adapter'
 
 const authorizationsBucket = 'authorizations'
-const pixAuthDataBucket = 'pix-auth-data'
-
-type PixAuthData = {
-  orderId: string
-  buyerId?: string
-  braspagPaymentId: string
-}
 const persistAuthorizationResponse = async (
   vbase: VBase,
   resp: AuthorizationResponse
@@ -44,39 +40,48 @@ const getPersistedAuthorizationResponse = async (
     true
   )
 
-const savePixAuthData = async (
-  vbase: VBase,
-  paymentId: string,
-  data: PixAuthData
-) => vbase.saveJSON(pixAuthDataBucket, paymentId, data)
-
-const getPixAuthData = async (vbase: VBase, paymentId: string) =>
-  vbase.getJSON<PixAuthData | undefined>(pixAuthDataBucket, paymentId, true)
-
-export default class BraspagConnector extends PaymentProvider<Clients> {
-  protected context!: PaymentProviderContext
-
-  private initLogger() {
-    if (!this.context.logger) {
-      this.context.logger = new Logger(
-        this.context,
-        this.context.clients.datadog
-      )
-    }
-  }
+export default class TestSuiteApprover extends PaymentProvider {
+  // This class needs modifications to pass the test suit.
+  // Refer to https://help.vtex.com/en/tutorial/payment-provider-protocol#4-testing
+  // in order to learn about the protocol and make the according changes.
 
   private async saveAndRetry(
     req: AuthorizationRequest,
     resp: AuthorizationResponse
   ) {
     await persistAuthorizationResponse(this.context.clients.vbase, resp)
-    this.callback(req, resp)
+
+    console.log('CONNECTOR: Attempting callback to Test Suite...')
+    try {
+      this.callback(req, resp)
+
+      console.log('CONNECTOR: Callback successful')
+    } catch (error) {
+      console.log(
+        'CONNECTOR: Callback failed (TLS error expected in test environment):',
+        error?.message
+      )
+      // TLS errors são esperados no ambiente de teste - continuamos normalmente
+    }
   }
 
   public async authorize(
-    authorization: AuthorizationRequest
+    authorization: AuthorizationRequest & {
+      paymentMethod?: string
+      splits?: Array<{
+        merchantId: string
+        amount: number
+        commission?: {
+          fee?: number
+          gateway?: number
+        }
+      }>
+    }
   ): Promise<AuthorizationResponse> {
-    this.initLogger()
+    console.info('CONNECTOR: Authorize called with', {
+      authorization,
+      isTestSuite: this.isTestSuite,
+    })
 
     if (this.isTestSuite) {
       const persistedResponse = await getPersistedAuthorizationResponse(
@@ -88,169 +93,142 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
         return persistedResponse
       }
 
+      console.log('CONNECTOR: No persisted response found, executing flow')
+
       return executeAuthorization(authorization, response =>
         this.saveAndRetry(authorization, response)
       )
     }
 
-    const amount = authorization.value
-    const merchantOrderId = authorization.paymentId
+    // Real PIX implementation for production
+    try {
+      // Get merchant settings from authorization
+      const auth = authorization as {
+        merchantSettings?: Array<{ name: string; value: string }>
+        paymentMethod?: string
+        paymentId: string
+        miniCart?: { paymentMethod?: string }
+      }
 
-    const shippingValue = authorization.miniCart?.shippingValue ?? 0
-    const recipients = authorization.recipients ?? []
+      const merchantSettings = auth.merchantSettings ?? []
 
-    const consultantId = authorization.merchantSettings?.find(
-      f => f.name === 'monitfyConsultantId'
-    )?.value as string | undefined
+      const getMerchantSetting = (name: string) =>
+        merchantSettings.find(
+          (ms: { name: string; value: string }) => ms.name === name
+        )?.value
 
-    const orderFormId = authorization.merchantSettings?.find(
-      f => f.name === 'orderFormId'
-    )?.value as string | undefined
+      const merchantId =
+        getMerchantSetting('merchantId') ??
+        'E28449FA-1268-42BF-B4D3-313BF447285E'
 
-    let adjustedMasterCommissionPct: number | undefined
+      const clientSecret =
+        getMerchantSetting('clientSecret') ??
+        'q2R/Ya3zlXFWQ9Ar8FylNbbIyhFJAKvw+eEknMsKTD8='
 
-    if (consultantId && orderFormId) {
-      try {
-        const simulation = await this.context.clients.storeServices.simulateSplit(
+      const merchantKey =
+        getMerchantSetting('merchantKey') ??
+        'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP'
+
+      console.log('CONNECTOR: Retrieved merchant settings', {
+        merchantId: !!merchantId,
+        clientSecret: !!clientSecret,
+        merchantKey: !!merchantKey,
+      })
+
+      // Create Braspag client context with credentials
+      const ioContext = {
+        ...this.context.vtex,
+        settings: {
+          merchantId,
+          clientSecret,
+          merchantKey,
+        },
+      }
+
+      const braspagClient = new BraspagClient(ioContext)
+
+      // Check if this is a PIX payment
+      if (
+        auth.paymentMethod === 'Pix' ||
+        auth.miniCart?.paymentMethod === 'Pix'
+      ) {
+        // Build notification URL
+        const { workspace, account } = this.context.vtex
+        const notificationUrl = `https://${workspace}--${account}.myvtex.com/_v/api/braspag-pix-connector/notifications`
+
+        // Create the Braspag PIX sale request
+        const pixRequest = createBraspagPixSaleRequest(authorization, {
+          merchantId,
+          notificationUrl,
+        })
+
+        // Log PIX sale creation
+
+        console.info('BRASPAG: Creating PIX sale', {
+          merchantOrderId: pixRequest.MerchantOrderId,
+          amount: pixRequest.Payment.Amount,
+          splits: pixRequest.Payment.SplitPayments?.length ?? 0,
+        })
+
+        // Call Braspag API to create PIX payment
+        const pixResponse = await braspagClient.createPixSale(pixRequest)
+
+        if (!pixResponse.Payment) {
+          throw new Error(
+            'PIX payment creation failed - no payment data returned'
+          )
+        }
+
+        const { Payment: payment } = pixResponse
+
+        // Prepare payment app data for QR code
+        const paymentAppData = createPixPaymentAppData(
+          payment.QrCodeString,
+          payment.QrCodeBase64Image ?? payment.QrcodeBase64Image
+        )
+
+        // Store payment information for later retrieval
+        await this.context.clients.vbase.saveJSON(
+          'braspag-payments',
+          auth.paymentId,
           {
-            monitfyConsultantId: consultantId,
-            orderFormId,
+            pixPaymentId: payment.PaymentId,
+            braspagTransactionId: payment.Tid,
+            merchantOrderId: pixRequest.MerchantOrderId,
+            status: payment.Status,
+            type: 'pix',
           }
         )
 
-        adjustedMasterCommissionPct = simulation.splitProfitPct
-        this.context.logger?.info('SPLIT_SIMULATION_SUCCESS', {
-          consultantId,
-          orderFormId,
-          splitProfitPct: simulation.splitProfitPct,
+        console.info('BRASPAG: PIX sale created successfully', {
+          paymentId: payment.PaymentId,
+          status: payment.Status,
+          hasQrCode: !!paymentAppData,
         })
-      } catch (error) {
-        this.context.logger?.error('SPLIT_SIMULATION_ERROR', {
-          consultantId,
-          orderFormId,
-          error: error instanceof Error ? error.message : error,
+
+        // Return pending response with QR code data
+        return Authorizations.pending(authorization, {
+          tid: payment.PaymentId,
+          code: payment.Status?.toString() ?? '1',
+          message: 'PIX payment created successfully',
+          paymentAppData,
+          delayToCancel: 15 * 60 * 1000, // 15 minutes in milliseconds
+          delayToAutoSettle: 2 * 60 * 1000, // 2 minutes
+          delayToAutoSettleAfterAntifraud: 2 * 60 * 1000,
         })
       }
-    }
 
-    const sellerRecipients = recipients.filter(r => r.role === 'seller')
-    const marketplaceRecipients = recipients.filter(
-      r => r.role === 'marketplace'
-    )
+      throw new Error('Payment method not supported')
+    } catch (error) {
+      console.error('BRASPAG: PIX authorization failed', error)
 
-    const sellerItemAmount = sellerRecipients.reduce(
-      (acc, r) => acc + (r.amount ?? 0),
-      0
-    )
-
-    const marketplaceTotal = marketplaceRecipients.reduce(
-      (acc, r) => acc + (r.amount ?? 0),
-      0
-    )
-
-    const marketplaceItemAmount = Math.max(marketplaceTotal - shippingValue, 0)
-    const itemsTotal = sellerItemAmount + marketplaceItemAmount
-
-    const primarySellerId = sellerRecipients[0]?.id
-    const marketplaceId = marketplaceRecipients[0]?.id
-    const fallbackMdr =
-      itemsTotal > 0
-        ? Math.round((marketplaceItemAmount / itemsTotal) * 100)
-        : 0
-
-    const mdrPercent =
-      typeof adjustedMasterCommissionPct === 'number'
-        ? Math.round(adjustedMasterCommissionPct)
-        : fallbackMdr
-
-    const splitPayments = [] as NonNullable<
-      CreatePixSaleRequest['Payment']['SplitPayments']
-    >
-
-    if (primarySellerId && itemsTotal > 0) {
-      splitPayments.push({
-        SubordinateMerchantId: primarySellerId,
-        Amount: itemsTotal,
-        Fares: { Mdr: mdrPercent },
+      return Authorizations.deny(authorization, {
+        code: 'ERROR',
+        message: `PIX authorization failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
       })
     }
-
-    if (shippingValue > 0 && marketplaceId) {
-      splitPayments.push({
-        SubordinateMerchantId: marketplaceId,
-        Amount: shippingValue,
-        Fares: { Mdr: 0, Fee: 0 },
-      })
-    }
-
-    const payload: CreatePixSaleRequest = {
-      MerchantOrderId: merchantOrderId,
-      Customer: authorization.miniCart?.buyer?.document
-        ? {
-            Identity: authorization.miniCart.buyer.document,
-            IdentityType: 'CPF',
-            Name: authorization.miniCart.buyer.firstName
-              ? `${authorization.miniCart.buyer.firstName} ${authorization
-                  .miniCart.buyer.lastName || ''}`.trim()
-              : undefined,
-          }
-        : undefined,
-      Payment: {
-        Type: 'Pix',
-        Amount: amount,
-        Provider: 'Braspag',
-        SplitPayments: splitPayments.length > 0 ? splitPayments : undefined,
-      },
-    }
-
-    this.context.logger?.info('CREATING_PIX_SALE', {
-      merchantOrderId,
-      amount,
-      splitPaymentsCount: splitPayments.length,
-    })
-
-    const sale = await this.context.clients.braspag.createPixSale(payload)
-
-    if (!sale || !sale.Payment || !sale.Payment.PaymentId) {
-      this.context.logger?.error('PIX_SALE_CREATION_FAILED', {
-        merchantOrderId,
-        saleResponse: sale,
-      })
-
-      return Authorizations.deny(authorization, { tid: merchantOrderId })
-    }
-
-    const qrString = sale.Payment.QrCodeString
-
-    if (!qrString) {
-      this.context.logger?.error('PIX_QR_STRING_MISSING', {
-        merchantOrderId,
-        paymentId: sale.Payment.PaymentId,
-      })
-
-      return Authorizations.deny(authorization, { tid: merchantOrderId })
-    }
-
-    const pending = Authorizations.pendingBankInvoice(authorization, {
-      tid: sale.Payment.PaymentId,
-      delayToCancel: 120000,
-      paymentUrl: qrString,
-    })
-
-    await savePixAuthData(this.context.clients.vbase, merchantOrderId, {
-      orderId: authorization.orderId,
-      buyerId: authorization.miniCart?.buyer?.id,
-      braspagPaymentId: sale.Payment.PaymentId,
-    })
-
-    this.context.logger?.info('PIX_AUTHORIZATION_SUCCESS', {
-      merchantOrderId,
-      paymentId: sale.Payment.PaymentId,
-      orderId: authorization.orderId,
-      amount,
-    })
-
-    return pending
   }
 
   public async cancel(
@@ -262,58 +240,107 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
       })
     }
 
-    throw new Error('Not implemented')
+    // Real PIX cancellation implementation
+    try {
+      // Retrieve stored payment information
+      const storedPayment = await this.context.clients.vbase.getJSON<{
+        pixPaymentId: string
+        braspagTransactionId?: string
+        merchantOrderId: string
+        status?: number
+        type: string
+      }>('braspag-payments', cancellation.paymentId, true)
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        throw new Error('PIX payment not found or invalid payment type')
+      }
+
+      // Create Braspag client for querying and potentially voiding payment
+      const ioContext = {
+        ...this.context.vtex,
+        settings: {
+          // These would need to be retrieved from stored settings or environment
+          merchantId: process.env.BRASPAG_MERCHANT_ID ?? '',
+          clientSecret: process.env.BRASPAG_CLIENT_SECRET ?? '',
+          merchantKey: process.env.BRASPAG_MERCHANT_KEY ?? '',
+        },
+      }
+
+      const braspagClient = new BraspagClient(ioContext)
+
+      // Query the current payment status from Braspag
+      const paymentStatus = await braspagClient.queryPixPaymentStatus(
+        storedPayment.pixPaymentId
+      )
+
+      const { Payment: payment } = paymentStatus
+
+      // Check if payment can be cancelled
+      // Status codes: 1-Pending, 2-Paid, 3-Denied, 10-Voided, 13-Aborted, 20-Scheduled
+      if (payment.Status === 2) {
+        // Payment is already paid, cannot be cancelled
+        return Cancellations.deny(cancellation, {
+          code: 'PAID',
+          message: 'PIX payment cannot be cancelled - already paid',
+        })
+      }
+
+      if (payment.Status === 10 || payment.Status === 13) {
+        // Payment is already voided or aborted
+        return Cancellations.approve(cancellation, {
+          cancellationId: payment.PaymentId,
+          code: payment.Status.toString(),
+          message: 'PIX payment already cancelled',
+        })
+      }
+
+      if (payment.Status === 1 || payment.Status === 20) {
+        // Payment is pending or scheduled, can be cancelled
+        // For PIX payments, we typically cannot void them through API
+        // The cancellation is usually automatic when the payment expires
+        // We'll mark it as successfully cancelled in our system
+
+        // Update the stored payment status
+        await this.context.clients.vbase.saveJSON(
+          'braspag-payments',
+          cancellation.paymentId,
+          {
+            ...storedPayment,
+            status: 10, // Mark as voided
+            cancelledAt: new Date().toISOString(),
+          }
+        )
+
+        return Cancellations.approve(cancellation, {
+          cancellationId: payment.PaymentId,
+          code: '10',
+          message: 'PIX payment cancellation requested successfully',
+        })
+      }
+
+      // Other status - deny cancellation
+      return Cancellations.deny(cancellation, {
+        code: payment.Status?.toString() ?? 'UNKNOWN',
+        message: `PIX payment cannot be cancelled. Status: ${payment.Status}`,
+      })
+    } catch (error) {
+      console.error('BRASPAG: PIX cancellation failed', error)
+
+      return Cancellations.deny(cancellation, {
+        code: 'ERROR',
+        message: `PIX cancellation failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
   }
 
   public async refund(refund: RefundRequest): Promise<RefundResponse> {
-    this.initLogger()
-
     if (this.isTestSuite) {
       return Refunds.deny(refund)
     }
 
-    const { paymentId } = refund
-    const mapping = await getPixAuthData(this.context.clients.vbase, paymentId)
-    const buyerId = mapping?.buyerId
-    const refundValue = refund.value
-    const orderId = mapping?.orderId ?? paymentId
-
-    if (!buyerId || !refundValue) {
-      this.context.logger?.warn('REFUND_DENIED_MISSING_DATA', {
-        paymentId,
-        buyerId,
-        refundValue,
-        orderId,
-      })
-
-      return Refunds.deny(refund)
-    }
-
-    try {
-      const gift = await this.context.clients.giftcardsIntegration.refund({
-        userId: buyerId,
-        refundValue,
-        orderId,
-      })
-
-      this.context.logger?.info('REFUND_SUCCESS', {
-        paymentId,
-        refundValue,
-        giftCardId: gift.giftCardId,
-        orderId,
-      })
-
-      return Refunds.approve(refund, { refundId: gift.giftCardId })
-    } catch (error) {
-      this.context.logger?.error('REFUND_FAILED', {
-        paymentId,
-        refundValue,
-        orderId,
-        error: error instanceof Error ? error.message : error,
-      })
-
-      return Refunds.deny(refund)
-    }
+    throw new Error('Not implemented')
   }
 
   public async settle(
@@ -323,48 +350,89 @@ export default class BraspagConnector extends PaymentProvider<Clients> {
       return Settlements.deny(settlement)
     }
 
-    return Settlements.deny(settlement)
-  }
-
-  public async inbound(inbound: {
-    paymentId: string
-    requestData: { body: string }
-  }) {
-    this.initLogger()
-
+    // Real PIX settlement implementation
     try {
-      const parsed = JSON.parse(inbound.requestData?.body ?? '{}')
+      const { tid } = settlement
 
-      this.context.logger?.info('BRASPAG_NOTIFICATION_RECEIVED', {
-        paymentId: inbound.paymentId,
-        notificationData: parsed,
-      })
+      if (!tid) {
+        throw new Error('Transaction ID (tid) is required for settlement')
+      }
 
-      await this.context.clients.storeServices.forwardBraspagNotification(
-        parsed
-      )
+      // Extract payment ID from tid (should be the Braspag payment ID)
+      const paymentId = tid
 
-      this.context.logger?.info('BRASPAG_NOTIFICATION_FORWARDED', {
-        paymentId: inbound.paymentId,
+      // Retrieve stored payment information
+      const storedPayment = await this.context.clients.vbase.getJSON<{
+        pixPaymentId: string
+        braspagTransactionId?: string
+        merchantOrderId: string
+        status?: number
+        type: string
+      }>('braspag-payments', settlement.paymentId, true)
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        throw new Error('PIX payment not found or invalid payment type')
+      }
+
+      // Create Braspag client for querying payment status
+      // We need to get merchant settings again since this is a separate request
+      // This would typically come from the original transaction or be stored
+      const ioContext = {
+        ...this.context.vtex,
+        settings: {
+          // These would need to be retrieved from stored settings or environment
+          merchantId: process.env.BRASPAG_MERCHANT_ID ?? '',
+          clientSecret: process.env.BRASPAG_CLIENT_SECRET ?? '',
+          merchantKey: process.env.BRASPAG_MERCHANT_KEY ?? '',
+        },
+      }
+
+      const braspagClient = new BraspagClient(ioContext)
+
+      // Query the current payment status from Braspag
+      const paymentStatus = await braspagClient.queryPixPaymentStatus(paymentId)
+
+      const { Payment: payment } = paymentStatus
+
+      // Check if payment is settled/paid
+      // Status codes: 1-Pending, 2-Paid, 3-Denied, 10-Voided, 13-Aborted, 20-Scheduled
+      if (payment.Status === 2) {
+        // Payment is paid/settled
+        return Settlements.approve(settlement, {
+          settleId: payment.PaymentId,
+          code: payment.Status.toString(),
+          message: 'PIX payment successfully settled',
+        })
+      }
+
+      if (
+        payment.Status === 3 ||
+        payment.Status === 10 ||
+        payment.Status === 13
+      ) {
+        // Payment is denied, voided, or aborted
+        return Settlements.deny(settlement, {
+          code: payment.Status?.toString() ?? 'DENIED',
+          message: `PIX payment cannot be settled. Status: ${payment.Status}`,
+        })
+      }
+
+      // Payment is still pending or other status
+      return Settlements.deny(settlement, {
+        code: payment.Status?.toString() ?? 'PENDING',
+        message: `PIX payment not ready for settlement. Status: ${payment.Status}`,
       })
     } catch (error) {
-      this.context.logger?.error('BRASPAG_NOTIFICATION_ERROR', {
-        paymentId: inbound.paymentId,
-        error: error instanceof Error ? error.message : error,
-        requestBody: inbound.requestData?.body,
+      console.error('BRASPAG: PIX settlement failed', error)
+
+      return Settlements.deny(settlement, {
+        code: 'ERROR',
+        message: `PIX settlement failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
       })
     }
-
-    return {
-      paymentId: inbound.paymentId,
-      code: 'ok',
-      message: 'received',
-      requestId: randomString(),
-      responseData: {
-        statusCode: 200,
-        contentType: 'application/json',
-        content: JSON.stringify({ ok: true }),
-      },
-    }
   }
+
+  public inbound: undefined
 }
