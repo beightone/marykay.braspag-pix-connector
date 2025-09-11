@@ -6,19 +6,13 @@
 
 import { VBase } from '@vtex/api'
 
-import { StoredBraspagPayment } from '../types/braspag-notifications'
-import { VBASE_BUCKETS } from '../constants/payment-constants'
-
-export interface PaymentReader {
-  getStoredPayment(paymentId: string): Promise<StoredBraspagPayment | null>
-}
-
-export interface PaymentWriter {
-  savePaymentData(paymentId: string, data: StoredBraspagPayment): Promise<void>
-  updatePaymentStatus(paymentId: string, status: number): Promise<void>
-}
-
-export interface PaymentStorage extends PaymentReader, PaymentWriter {}
+import { StoredBraspagPayment } from '../../types/braspag-notifications'
+import { VBASE_BUCKETS } from '../../constants/payment-constants'
+import {
+  PaymentStorage,
+  AuthorizationStorage,
+  AuthorizationResponseData,
+} from './types'
 
 /**
  * VBase implementation of payment storage operations
@@ -91,21 +85,6 @@ export class VBasePaymentStorageService implements PaymentStorage {
 /**
  * Authorization response storage operations
  */
-export interface AuthorizationStorage {
-  saveAuthorizationResponse(response: AuthorizationResponseData): Promise<void>
-  getAuthorizationResponse(
-    paymentId: string
-  ): Promise<AuthorizationResponseData | null>
-}
-
-export interface AuthorizationResponseData {
-  paymentId: string
-  status: string
-  code?: string
-  message?: string
-  tid?: string
-  paymentAppData?: unknown
-}
 
 /**
  * VBase implementation for authorization response storage

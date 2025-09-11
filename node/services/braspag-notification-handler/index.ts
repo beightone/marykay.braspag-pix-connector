@@ -2,12 +2,9 @@ import {
   BraspagNotification,
   BraspagChangeType,
   StoredBraspagPayment,
-} from '../types/braspag-notifications'
-import {
-  NotificationHandler,
-  NotificationContext,
-} from './notification-service'
-import { Logger } from '../clients/braspag/logger'
+} from '../../types/braspag-notifications'
+import { Logger } from '../../clients/braspag/logger'
+import { NotificationHandler, NotificationContext } from '../notification/types'
 
 export class BraspagNotificationHandler implements NotificationHandler {
   constructor(private logger: Logger) {}
@@ -33,7 +30,6 @@ export class BraspagNotificationHandler implements NotificationHandler {
       MerchantOrderId,
     })
 
-    // Find the corresponding stored payment
     const storedPayment = await this.getStoredPayment(PaymentId, context)
 
     if (!storedPayment) {

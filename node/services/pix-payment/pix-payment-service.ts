@@ -14,17 +14,17 @@ import {
 } from '@vtex/payment-provider'
 import { IOContext } from '@vtex/api'
 
-import { PaymentConfigurationService } from './payment-configuration-service'
-import { PaymentStorage } from './payment-storage-service'
-import { BraspagClientFactory } from './braspag-client-factory'
-import { PaymentConnectorLogger } from '../utils/structured-logger'
+import { PaymentConfigurationService } from '../payment-configuration'
+import { PaymentConnectorLogger } from '../../utils/structured-logger'
 import {
   BRASPAG_STATUS,
   ERROR_CODES,
   RESPONSE_MESSAGES,
   PAYMENT_TYPES,
-} from '../constants/payment-constants'
-import { StoredBraspagPayment } from '../types/braspag-notifications'
+} from '../../constants/payment-constants'
+import { StoredBraspagPayment } from '../../types/braspag-notifications'
+import { BraspagClientFactory } from '../braspag-client-factory/types'
+import { PaymentStorage } from '../payment-storage/types'
 
 interface BraspagPayment {
   PaymentId: string

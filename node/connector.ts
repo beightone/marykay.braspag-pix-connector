@@ -20,13 +20,16 @@ import {
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
 import { Clients } from './clients'
-import { PaymentConfigurationServiceFactory } from './services/payment-configuration-service'
-import { PaymentStorageServiceFactory } from './services/payment-storage-service'
-import { braspagClientFactory } from './services/braspag-client-factory'
-import { PixOperationsServiceFactory } from './services/pix-operations-service'
 import { LoggerFactory } from './utils/structured-logger'
 import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
-import { PixAuthorizationServiceFactory } from './services/pix-authorization-service'
+import {
+  PaymentConfigurationServiceFactory,
+  PaymentStorageServiceFactory,
+  WebhookInboundServiceFactory,
+} from './services'
+import { PixAuthorizationServiceFactory } from './services/authorization'
+import { braspagClientFactory } from './services/braspag-client-factory'
+import { PixOperationsServiceFactory } from './services/operations'
 
 const authorizationsBucket = 'authorizations'
 const persistAuthorizationResponse = async (
@@ -68,6 +71,10 @@ export default class BraspagConnector extends PaymentProvider<
     context: this.context.vtex,
     logger: this.logger,
   })
+
+  private readonly webhookService = WebhookInboundServiceFactory.create(
+    this.logger
+  )
 
   public async authorize(
     authorization: AuthorizationRequest & {
@@ -190,5 +197,26 @@ export default class BraspagConnector extends PaymentProvider<
     )
   }
 
-  public inbound: undefined
+  /**
+   * Inbound webhook handler for receiving Braspag notifications
+   * Processes payment status changes and triggers appropriate actions
+   */
+  public inbound = async (request: any): Promise<any> => {
+    this.logger.info('INBOUND: Webhook received', {
+      body: request.body,
+      headers: request.headers,
+    })
+
+    // Create VBase client adapter
+    const vbaseClient = {
+      getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
+        this.context.clients.vbase.getJSON<T>(bucket, key, nullIfNotFound),
+      saveJSON: async (bucket: string, key: string, data: unknown) => {
+        await this.context.clients.vbase.saveJSON(bucket, key, data)
+      },
+    }
+
+    // Delegate to webhook service
+    return this.webhookService.processWebhook(request, vbaseClient)
+  }
 }

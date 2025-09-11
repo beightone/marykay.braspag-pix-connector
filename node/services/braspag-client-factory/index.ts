@@ -1,20 +1,9 @@
-/**
- * Braspag Client Factory
- * Centralizes the creation of BraspagClient instances with consistent configuration
- */
-
 import { IOContext } from '@vtex/api'
 
-import { BraspagClient } from '../clients/braspag'
-import { MerchantSettings } from './payment-configuration-service'
-import { TIMEOUT_CONFIG } from '../constants/payment-constants'
-
-export interface BraspagClientFactory {
-  createClient(
-    vtexContext: IOContext,
-    merchantSettings: MerchantSettings
-  ): BraspagClient
-}
+import { BraspagClient } from '../../clients/braspag'
+import { TIMEOUT_CONFIG } from '../../constants/payment-constants'
+import { BraspagClientFactory } from './types'
+import { MerchantSettings } from '../payment-configuration/types'
 
 /**
  * Factory for creating properly configured BraspagClient instances

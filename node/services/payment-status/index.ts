@@ -1,12 +1,5 @@
-/**
- * Payment Status Validator Service
- * Handles payment status validation for different operations
- * Follows Single Responsibility Principle (SRP)
- */
+import { PaymentStatusValidator, PaymentValidationResult } from './types'
 
-/**
- * Braspag payment status codes
- */
 export enum BraspagPaymentStatus {
   Pending = 1,
   Paid = 2,
@@ -15,46 +8,7 @@ export enum BraspagPaymentStatus {
   Aborted = 13,
   Scheduled = 20,
 }
-
-/**
- * Payment validation results
- */
-export interface PaymentValidationResult {
-  isValid: boolean
-  reason?: string
-  statusCode?: string
-}
-
-/**
- * Status validation for cancellation operations
- */
-export interface CancellationValidator {
-  canBeCancelled(status: number): PaymentValidationResult
-}
-
-/**
- * Status validation for settlement operations
- */
-export interface SettlementValidator {
-  canBeSettled(status: number): PaymentValidationResult
-}
-
-/**
- * Combined payment status validator
- */
-export interface PaymentStatusValidator
-  extends CancellationValidator,
-    SettlementValidator {
-  getStatusDescription(status: number): string
-}
-
-/**
- * Braspag-specific payment status validator implementation
- */
 export class BraspagPaymentStatusValidator implements PaymentStatusValidator {
-  /**
-   * Check if payment can be cancelled based on status
-   */
   public canBeCancelled(status: number): PaymentValidationResult {
     switch (status) {
       case BraspagPaymentStatus.Paid:
@@ -82,14 +36,14 @@ export class BraspagPaymentStatusValidator implements PaymentStatusValidator {
         return {
           isValid: true,
           reason: 'PIX payment cancellation requested successfully',
-          statusCode: '10', // Mark as voided
+          statusCode: '10',
         }
 
       case BraspagPaymentStatus.Scheduled:
         return {
           isValid: true,
           reason: 'PIX payment cancellation requested successfully',
-          statusCode: '10', // Mark as voided
+          statusCode: '10',
         }
 
       case BraspagPaymentStatus.Denied:
@@ -108,9 +62,6 @@ export class BraspagPaymentStatusValidator implements PaymentStatusValidator {
     }
   }
 
-  /**
-   * Check if payment can be settled based on status
-   */
   public canBeSettled(status: number): PaymentValidationResult {
     switch (status) {
       case BraspagPaymentStatus.Paid:
@@ -164,9 +115,6 @@ export class BraspagPaymentStatusValidator implements PaymentStatusValidator {
     }
   }
 
-  /**
-   * Get human-readable description for status code
-   */
   public getStatusDescription(status: number): string {
     switch (status) {
       case BraspagPaymentStatus.Pending:
@@ -193,13 +141,7 @@ export class BraspagPaymentStatusValidator implements PaymentStatusValidator {
   }
 }
 
-/**
- * Factory for creating payment status validators
- */
 export class PaymentStatusValidatorFactory {
-  /**
-   * Create Braspag payment status validator
-   */
   public static createBraspagValidator(): BraspagPaymentStatusValidator {
     return new BraspagPaymentStatusValidator()
   }

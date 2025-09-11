@@ -7,25 +7,12 @@ import {
   Settlements,
 } from '@vtex/payment-provider'
 
-import { IOContext } from '@vtex/api'
-import { PaymentConfigurationService } from './payment-configuration-service'
-import { VBasePaymentStorageService } from './payment-storage-service'
-import { BraspagClientFactory } from './braspag-client-factory'
-import { StructuredLogger } from '../utils/structured-logger'
-import { PaymentStatusHandler } from './payment-status-handler'
-
-export interface PixOperationsService {
-  cancelPayment(cancellation: CancellationRequest): Promise<CancellationResponse>
-  settlePayment(settlement: SettlementRequest): Promise<SettlementResponse>
-}
-
-interface PixOperationsServiceDependencies {
-  configService: PaymentConfigurationService
-  storageService: VBasePaymentStorageService
-  clientFactory: BraspagClientFactory
-  context: IOContext
-  logger: StructuredLogger
-}
+import {
+  PixOperationsService,
+  PixOperationsServiceDependencies,
+  PixOperationsServiceFactoryParams,
+} from './types'
+import { PaymentStatusHandler } from '../payment-status-handler'
 
 export class BraspagPixOperationsService implements PixOperationsService {
   constructor(private readonly deps: PixOperationsServiceDependencies) {}
@@ -42,7 +29,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const braspagClient = await this.createBraspagClient(cancellation.paymentId)
+      const braspagClient = await this.createBraspagClient(
+        cancellation.paymentId
+      )
+
       const paymentStatus = await braspagClient.queryPixPaymentStatus(
         storedPayment.pixPaymentId
       )
@@ -66,7 +56,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
       }
 
       if (statusInfo.canCancel) {
-        await this.deps.storageService.updatePaymentStatus(cancellation.paymentId, 10)
+        await this.deps.storageService.updatePaymentStatus(
+          cancellation.paymentId,
+          10
+        )
 
         return Cancellations.approve(cancellation, {
           cancellationId: payment.PaymentId,
@@ -152,14 +145,6 @@ export class BraspagPixOperationsService implements PixOperationsService {
       merchantSettings
     )
   }
-}
-
-interface PixOperationsServiceFactoryParams {
-  configService: PaymentConfigurationService
-  storageService: VBasePaymentStorageService
-  clientFactory: BraspagClientFactory
-  context: IOContext
-  logger: StructuredLogger
 }
 
 export class PixOperationsServiceFactory {

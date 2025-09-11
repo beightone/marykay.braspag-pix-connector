@@ -1,36 +1,15 @@
 /**
  * Payment Configuration Service
  * Handles merchant settings retrieval and validation
- * Follows Single Responsibility Principle (SRP)
  */
 
-import { DEFAULT_MERCHANT_CONFIG } from '../constants/payment-constants'
-
-export interface MerchantSettings {
-  merchantId: string
-  clientSecret: string
-  merchantKey: string
-  monitfyConsultantId?: string
-  notificationUrl?: string
-}
-
-export interface PaymentConfigurationProvider {
-  getMerchantSettings(authorization: PaymentAuthorizationData): MerchantSettings
-  getMerchantSettingsFromEnv(): MerchantSettings
-  buildNotificationUrl(vtexContext: VtexContext): string
-}
-
-export interface PaymentAuthorizationData {
-  merchantSettings?: Array<{ name: string; value: string }>
-  paymentId: string
-  paymentMethod?: string
-  miniCart?: { paymentMethod?: string }
-}
-
-export interface VtexContext {
-  workspace: string
-  account: string
-}
+import { DEFAULT_MERCHANT_CONFIG } from '../../constants/payment-constants'
+import {
+  MerchantSettings,
+  PaymentAuthorizationData,
+  PaymentConfigurationProvider,
+  VtexContext,
+} from './types'
 
 /**
  * Service for managing payment provider configuration

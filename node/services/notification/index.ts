@@ -1,27 +1,6 @@
-import { Logger } from '../clients/braspag/logger'
+import { Logger } from '@vtex/api'
 
-export interface NotificationContext {
-  status: number
-  body: unknown
-  clients: {
-    vbase: {
-      getJSON: <T>(
-        bucket: string,
-        key: string,
-        nullIfNotFound?: boolean
-      ) => Promise<T | null>
-      saveJSON: (bucket: string, key: string, data: unknown) => Promise<void>
-    }
-  }
-  request: {
-    body: unknown
-  }
-}
-
-export interface NotificationHandler {
-  canHandle(notification: unknown): boolean
-  handle(notification: unknown, context: NotificationContext): Promise<void>
-}
+import { NotificationHandler, NotificationContext } from './types'
 
 export class NotificationResponse {
   constructor(
@@ -68,18 +47,19 @@ export class NotificationService {
     context: NotificationContext
   ): Promise<NotificationResponse> {
     try {
-      this.logger.info('NOTIFICATION: Received notification', {
-        type: typeof notification,
-        hasBody: !!notification,
-      })
+      this.logger.info(
+        `NOTIFICATION: Received notification - type: ${typeof notification}, hasBody: ${!!notification}`
+      )
 
       // Find appropriate handler
       const handler = this.handlers.find(h => h.canHandle(notification))
 
       if (!handler) {
-        this.logger.warn('NOTIFICATION: No handler found for notification', {
-          notification,
-        })
+        this.logger.warn(
+          `NOTIFICATION: No handler found for notification - ${JSON.stringify(
+            notification
+          )}`
+        )
 
         return NotificationResponse.badRequest('Unsupported notification type')
       }
@@ -91,10 +71,11 @@ export class NotificationService {
 
       return NotificationResponse.success()
     } catch (error) {
-      this.logger.error('NOTIFICATION: Processing failed', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        notification,
-      })
+      this.logger.error(
+        `NOTIFICATION: Processing failed - error: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }, notification: ${JSON.stringify(notification)}`
+      )
 
       return NotificationResponse.error(
         'Failed to process notification',

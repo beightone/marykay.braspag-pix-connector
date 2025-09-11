@@ -3,58 +3,23 @@ import {
   AuthorizationResponse,
   Authorizations,
 } from '@vtex/payment-provider'
-import { IOContext } from '@vtex/api'
 
 import {
   createBraspagPixSaleRequest,
   createPixPaymentAppData,
-} from '../adapters/braspag-pix-adapter'
-import { PaymentConfigurationService } from './payment-configuration-service'
-import { VBasePaymentStorageService } from './payment-storage-service'
-import { BraspagClientFactory } from './braspag-client-factory'
-import { StructuredLogger } from '../utils/structured-logger'
+} from '../../adapters/braspag-pix-adapter'
 import {
+  RESPONSE_MESSAGES,
   PAYMENT_DELAYS,
   PAYMENT_TYPES,
-  RESPONSE_MESSAGES,
-} from '../constants/payment-constants'
-
-export interface PixAuthorizationService {
-  authorizePixPayment(
-    authorization: AuthorizationRequest
-  ): Promise<AuthorizationResponse>
-}
-
-interface PixAuthorizationServiceDependencies {
-  configService: PaymentConfigurationService
-  storageService: VBasePaymentStorageService
-  clientFactory: BraspagClientFactory
-  context: IOContext
-  logger: StructuredLogger
-}
-
-interface ExtendedAuthorizationRequest {
-  merchantSettings?: Record<string, string | number | boolean>
-  paymentMethod?: string
-  miniCart?: { paymentMethod?: string }
-  paymentId: string
-  value: number
-  currency: string
-  callbackUrl: string
-  returnUrl: string
-  inboundRequestsUrl: string
-  reference: string
-  orderId: string
-}
-
-interface BraspagPayment {
-  PaymentId: string
-  Tid?: string
-  Status?: number
-  QrCodeString?: string
-  QrCodeBase64Image?: string
-  QrcodeBase64Image?: string
-}
+} from '../../constants/payment-constants'
+import {
+  PixAuthorizationService,
+  PixAuthorizationServiceDependencies,
+  ExtendedAuthorizationRequest,
+  BraspagPayment,
+  PixAuthorizationServiceFactoryParams,
+} from './types'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -63,6 +28,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
     const merchantSettings = this.getMerchantSettings(authorization)
+
     const braspagClient = this.deps.clientFactory.createClient(
       this.deps.context,
       merchantSettings
@@ -154,14 +120,6 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       type: PAYMENT_TYPES.PIX,
     })
   }
-}
-
-interface PixAuthorizationServiceFactoryParams {
-  configService: PaymentConfigurationService
-  storageService: VBasePaymentStorageService
-  clientFactory: BraspagClientFactory
-  context: IOContext
-  logger: StructuredLogger
 }
 
 export class PixAuthorizationServiceFactory {
