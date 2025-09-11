@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { BraspagConfig } from './config'
 import { Logger } from './logger'
 import { AuthenticateResponse } from './types'
@@ -47,6 +48,12 @@ export class BraspagAuthenticator {
 
     const basicAuth = Buffer.from(`${merchantId}:${clientSecret}`).toString(
       'base64'
+    )
+
+    console.log(
+      'BRASPAG: Authenticating with merchantId',
+      merchantId,
+      clientSecret
     )
 
     try {
