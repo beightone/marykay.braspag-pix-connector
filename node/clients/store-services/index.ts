@@ -16,16 +16,33 @@ export class StoreServicesClient extends ExternalClient {
   public async simulateSplit(payload: SimulateSplitRequest) {
     const { logger } = this.context as any
 
+    console.log('STORE_SERVICES: Starting split simulation', {
+      monitfyConsultantId: payload.monitfyConsultantId,
+      orderFormId: payload.orderFormId,
+      workspace: this.context.workspace,
+      account: this.context.account
+    })
+
     try {
       logger?.info('STORE_SERVICES_SIMULATE_SPLIT_REQUEST', {
         monitfyConsultantId: payload.monitfyConsultantId,
         orderFormId: payload.orderFormId,
       })
 
+      const url = `http://${this.context.workspace}--${this.context.account}.myvtex.com/_v/split/simulate`
+      
+      console.log('STORE_SERVICES: Making request to', { url })
+
       const response = await this.http.post<SimulateSplitResponse>(
-        `http://${this.context.workspace}--${this.context.account}.myvtex.com/_v/split/simulate`,
+        url,
         payload
       )
+
+      console.log('STORE_SERVICES: Split simulation successful', {
+        monitfyConsultantId: payload.monitfyConsultantId,
+        splitProfitPct: response.splitProfitPct,
+        splitDiscountPct: response.splitDiscountPct
+      })
 
       logger?.info('STORE_SERVICES_SIMULATE_SPLIT_SUCCESS', {
         monitfyConsultantId: payload.monitfyConsultantId,
@@ -35,6 +52,11 @@ export class StoreServicesClient extends ExternalClient {
 
       return response
     } catch (error) {
+      console.log('STORE_SERVICES: Split simulation failed', {
+        monitfyConsultantId: payload.monitfyConsultantId,
+        error: error instanceof Error ? error.message : error
+      })
+
       logger?.error('STORE_SERVICES_SIMULATE_SPLIT_FAILED', {
         monitfyConsultantId: payload.monitfyConsultantId,
         error: error instanceof Error ? error.message : error,
