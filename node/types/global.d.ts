@@ -4,6 +4,7 @@ import {
   ParamsContext,
   EventContext,
 } from '@vtex/api'
+import { PaymentProviderState } from '@vtex/payment-provider'
 
 import { Clients } from '../clients'
 import { Logger } from '../tools/datadog/datadog'

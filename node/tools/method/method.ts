@@ -9,11 +9,11 @@ import {
 } from '@vtex/api'
 
 import { Clients } from '../../clients'
-import { injectLogger } from '../datadog/log/inject-logger'
-import { errorMiddleware } from './error-middleware'
+// import { injectLogger } from '../datadog/log/inject-logger'
+// import { errorMiddleware } from './error-middleware'
 import { MethodOptions } from '../../types/custom'
 
-const arrayLog = [injectLogger, errorMiddleware]
+// const arrayLog = [injectLogger, errorMiddleware]
 
 export function method<
   T extends IOClients,
