@@ -49,21 +49,14 @@
       "attrs": {
         "host": "authsandbox.braspag.com.br"
       }
-    },
-    {
-      "name": "outbound-access",
-      "attrs": {
-        "host": "*.myvtex.com"
-      }
     }
   ],
   "billingOptions": {
     "type": "free",
-    "support": {
-      "email": "gabriel.gotardo@b8one.com",
-      "url": "https://support.com/hc/requests"
-    },
-    "availableCountries": ["*"]
+    "private": true,
+    "availableCountries": [
+      "*"
+    ]
   },
   "settingsSchema": {
     "title": "Configuration",
