@@ -6,22 +6,15 @@
 
 import { VBase } from '@vtex/api'
 
-export interface StoredPaymentData {
-  pixPaymentId: string
-  braspagTransactionId?: string
-  merchantOrderId: string
-  status?: number
-  type: string
-  cancelledAt?: string
-  lastUpdated?: string
-}
+import { StoredBraspagPayment } from '../types/braspag-notifications'
+import { VBASE_BUCKETS } from '../constants/payment-constants'
 
 export interface PaymentReader {
-  getStoredPayment(paymentId: string): Promise<StoredPaymentData | null>
+  getStoredPayment(paymentId: string): Promise<StoredBraspagPayment | null>
 }
 
 export interface PaymentWriter {
-  savePaymentData(paymentId: string, data: StoredPaymentData): Promise<void>
+  savePaymentData(paymentId: string, data: StoredBraspagPayment): Promise<void>
   updatePaymentStatus(paymentId: string, status: number): Promise<void>
 }
 
@@ -31,8 +24,6 @@ export interface PaymentStorage extends PaymentReader, PaymentWriter {}
  * VBase implementation of payment storage operations
  */
 export class VBasePaymentStorageService implements PaymentStorage {
-  private readonly BUCKET_NAME = 'braspag-payments'
-
   constructor(private vbase: VBase) {}
 
   /**
@@ -40,10 +31,10 @@ export class VBasePaymentStorageService implements PaymentStorage {
    */
   public async getStoredPayment(
     paymentId: string
-  ): Promise<StoredPaymentData | null> {
+  ): Promise<StoredBraspagPayment | null> {
     try {
-      const storedData = await this.vbase.getJSON<StoredPaymentData>(
-        this.BUCKET_NAME,
+      const storedData = await this.vbase.getJSON<StoredBraspagPayment>(
+        VBASE_BUCKETS.BRASPAG_PAYMENTS,
         paymentId,
         true
       )
@@ -60,14 +51,18 @@ export class VBasePaymentStorageService implements PaymentStorage {
    */
   public async savePaymentData(
     paymentId: string,
-    data: StoredPaymentData
+    data: StoredBraspagPayment
   ): Promise<void> {
-    const paymentData: StoredPaymentData = {
+    const paymentData: StoredBraspagPayment = {
       ...data,
       lastUpdated: new Date().toISOString(),
     }
 
-    await this.vbase.saveJSON(this.BUCKET_NAME, paymentId, paymentData)
+    await this.vbase.saveJSON(
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
+      paymentId,
+      paymentData
+    )
   }
 
   /**
@@ -83,7 +78,7 @@ export class VBasePaymentStorageService implements PaymentStorage {
       throw new Error(`Payment not found: ${paymentId}`)
     }
 
-    const updatedData: StoredPaymentData = {
+    const updatedData: StoredBraspagPayment = {
       ...existingData,
       status,
       lastUpdated: new Date().toISOString(),
@@ -116,8 +111,6 @@ export interface AuthorizationResponseData {
  * VBase implementation for authorization response storage
  */
 export class VBaseAuthorizationStorageService implements AuthorizationStorage {
-  private readonly BUCKET_NAME = 'authorizations'
-
   constructor(private vbase: VBase) {}
 
   /**
@@ -126,7 +119,11 @@ export class VBaseAuthorizationStorageService implements AuthorizationStorage {
   public async saveAuthorizationResponse(
     response: AuthorizationResponseData
   ): Promise<void> {
-    await this.vbase.saveJSON(this.BUCKET_NAME, response.paymentId, response)
+    await this.vbase.saveJSON(
+      VBASE_BUCKETS.AUTHORIZATIONS,
+      response.paymentId,
+      response
+    )
   }
 
   /**
@@ -137,7 +134,7 @@ export class VBaseAuthorizationStorageService implements AuthorizationStorage {
   ): Promise<AuthorizationResponseData | null> {
     try {
       const response = await this.vbase.getJSON<AuthorizationResponseData>(
-        this.BUCKET_NAME,
+        VBASE_BUCKETS.AUTHORIZATIONS,
         paymentId,
         true
       )

@@ -4,6 +4,8 @@
  * Follows Single Responsibility Principle (SRP)
  */
 
+import { DEFAULT_MERCHANT_CONFIG } from '../constants/payment-constants'
+
 export interface MerchantSettings {
   merchantId: string
   clientSecret: string
@@ -14,6 +16,7 @@ export interface MerchantSettings {
 
 export interface PaymentConfigurationProvider {
   getMerchantSettings(authorization: PaymentAuthorizationData): MerchantSettings
+  getMerchantSettingsFromEnv(): MerchantSettings
   buildNotificationUrl(vtexContext: VtexContext): string
 }
 
@@ -30,19 +33,11 @@ export interface VtexContext {
 }
 
 /**
- * Default merchant settings for fallback scenarios
- */
-const DEFAULT_MERCHANT_SETTINGS: Omit<MerchantSettings, 'notificationUrl'> = {
-  merchantId: 'E28449FA-1268-42BF-B4D3-313BF447285E',
-  clientSecret: 'q2R/Ya3zlXFWQ9Ar8FylNbbIyhFJAKvw+eEknMsKTD8=',
-  merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-}
-
-/**
  * Service for managing payment provider configuration
  * Abstracts merchant settings retrieval and validation
  */
-export class PaymentConfigurationService implements PaymentConfigurationProvider {
+export class PaymentConfigurationService
+  implements PaymentConfigurationProvider {
   /**
    * Extract and validate merchant settings from authorization data
    */
@@ -55,6 +50,23 @@ export class PaymentConfigurationService implements PaymentConfigurationProvider
     const validatedSettings = this.validateMerchantSettings(extractedSettings)
 
     return validatedSettings
+  }
+
+  /**
+   * Get merchant settings from environment variables
+   * Used for cancel() and settle() operations where authorization data is not available
+   */
+  public getMerchantSettingsFromEnv(): MerchantSettings {
+    return {
+      merchantId:
+        process.env.BRASPAG_MERCHANT_ID ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_ID,
+      clientSecret:
+        process.env.BRASPAG_CLIENT_SECRET ??
+        DEFAULT_MERCHANT_CONFIG.CLIENT_SECRET,
+      merchantKey:
+        process.env.BRASPAG_MERCHANT_KEY ??
+        DEFAULT_MERCHANT_CONFIG.MERCHANT_KEY,
+    }
   }
 
   /**
@@ -91,12 +103,11 @@ export class PaymentConfigurationService implements PaymentConfigurationProvider
   ): MerchantSettings {
     return {
       merchantId:
-        extractedSettings.merchantId ?? DEFAULT_MERCHANT_SETTINGS.merchantId,
+        extractedSettings.merchantId ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_ID,
       clientSecret:
-        extractedSettings.clientSecret ??
-        DEFAULT_MERCHANT_SETTINGS.clientSecret,
+        extractedSettings.clientSecret ?? DEFAULT_MERCHANT_CONFIG.CLIENT_SECRET,
       merchantKey:
-        extractedSettings.merchantKey ?? DEFAULT_MERCHANT_SETTINGS.merchantKey,
+        extractedSettings.merchantKey ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_KEY,
       monitfyConsultantId: extractedSettings.monitfyConsultantId,
     }
   }

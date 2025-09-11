@@ -1,0 +1,14 @@
+{
+  "memory": 256,
+  "ttl": 60,
+  "timeout": 100,
+  "minReplicas": 1,
+  "maxReplicas": 2,
+  "workers": 1,
+  "routes": {
+    "notifications": {
+      "path": "/_v/braspag-pix-connector/v0/notifications",
+      "public": true
+    }
+  }
+}
