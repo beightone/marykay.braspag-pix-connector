@@ -1,5 +1,5 @@
 {
-  "name": "CieloCommerce",
+  "name": "BraspagPixConnector",
   "paymentMethods": [
     {
       "name": "Pix",
