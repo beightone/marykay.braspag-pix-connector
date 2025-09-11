@@ -21,6 +21,7 @@ export type PaymentEntry = {
   Amount: number
   Provider: 'Braspag'
   SplitPayments?: SplitPaymentEntry[]
+  NotificationUrl?: string
 }
 
 export type SplitPaymentEntry = {
@@ -63,4 +64,10 @@ export type VoidPixResponse = {
   Message?: string
   ReasonCode?: number
   ReasonMessage?: string
+}
+
+export type QueryPixStatusResponse = {
+  MerchantOrderId?: string
+  Customer?: Customer
+  Payment: PixPaymentData
 }
