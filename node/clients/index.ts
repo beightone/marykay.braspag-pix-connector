@@ -15,14 +15,18 @@ export class Clients extends IOClients {
   }
 }
 
-const EIGHT_SECONDS = 8000
+const THIRTY_SECONDS = 30000
 
 export const clients: ClientsConfig<Clients> = {
   implementation: Clients,
   options: {
     default: {
       retries: 2,
-      timeout: EIGHT_SECONDS,
+      timeout: THIRTY_SECONDS,
+    },
+    braspag: {
+      retries: 3,
+      timeout: THIRTY_SECONDS,
     },
   },
 }

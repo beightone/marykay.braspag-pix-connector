@@ -1,12 +1,18 @@
 import { PaymentProviderService } from '@vtex/payment-provider'
+import { method } from '@vtex/api'
 
-import TestSuiteApprover from './connector'
 import { clients } from './clients'
+import { notifications } from './middlewares/notifications'
+import BraspagConnector from './connector'
 
-// Create enhanced service with middlewares
 const service = new PaymentProviderService({
   clients,
-  connector: TestSuiteApprover,
+  connector: BraspagConnector,
+  routes: {
+    notifications: method({
+      POST: [notifications],
+    }),
+  },
 })
 
 export default service
