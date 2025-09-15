@@ -3,11 +3,11 @@ import {
   BraspagChangeType,
   StoredBraspagPayment,
 } from '../../types/braspag-notifications'
-import { Logger } from '../../clients/braspag/logger'
+import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { NotificationHandler, NotificationContext } from '../notification/types'
 
 export class BraspagNotificationHandler implements NotificationHandler {
-  constructor(private logger: Logger) {}
+  constructor(private logger: DatadogLoggerAdapter) {}
 
   public canHandle(notification: unknown): notification is BraspagNotification {
     return this.isBraspagNotification(notification)
@@ -64,9 +64,8 @@ export class BraspagNotificationHandler implements NotificationHandler {
         true
       )
     } catch (error) {
-      this.logger.error('BRASPAG: Failed to retrieve stored payment', {
+      this.logger.error('BRASPAG: Failed to retrieve stored payment', error, {
         paymentId,
-        error: error instanceof Error ? error.message : 'Unknown error',
       })
 
       return null

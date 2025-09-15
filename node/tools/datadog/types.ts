@@ -8,10 +8,10 @@ export interface LogBody {
   status: LogType
   operationId: string
   account: string
-  content: any
+  content: unknown
   http?: Http
   trace_id: string
-  metadata?: any
+  metadata?: Record<string, unknown>
 }
 
 export interface Http {
@@ -33,7 +33,7 @@ export interface Http {
 
 export type DatadogOptions = {
   trackerId?: string
-  metadata?: any
+  metadata?: Record<string, unknown>
 }
 
 export type LogType = 'INFO' | 'WARN' | 'ERROR'

@@ -1,23 +1,29 @@
-import type { DatadogOptions, LogBody, LogType } from './types'
+import { DatadogOptions, LogBody, LogType } from './types'
 
-export function datadogLog(
-  ctx: Context,
-  textReference: string,
-  content: any,
-  type: LogType,
+export function datadogLog(params: {
+  ctx: Context
+  textReference: string
+  content: unknown
+  type: LogType
   options?: DatadogOptions
-): LogBody {
+}): LogBody {
+  const { ctx, textReference, content, type, options } = params
+  const routeId = ctx.vtex?.route?.id ?? ctx.vtex?.operationId ?? 'unknown'
+  const account = ctx.vtex?.account ?? 'unknown'
+  const operationId = ctx.vtex?.operationId ?? 'unknown'
+  const appId = process.env.VTEX_APP_ID ?? 'unknown-app'
+  
   return {
-    trace_id: options?.trackerId ?? ctx.vtex.route.id,
+    trace_id: options?.trackerId ?? routeId,
     source: 'vtex',
     env: process.env.VTEX_WORKSPACE ?? '',
     version: process.env.VTEX_APP_VERSION ?? '',
-    hostname: `${ctx.vtex.account}`,
+    hostname: account,
     message: textReference,
-    service: `${(process.env.VTEX_APP_ID as string).split('@')[0]}`,
+    service: appId.split('@')[0],
     status: type,
-    operationId: ctx.vtex.operationId,
-    account: `${ctx.vtex.account}`,
+    operationId,
+    account,
     content,
     metadata: {
       ...options?.metadata,

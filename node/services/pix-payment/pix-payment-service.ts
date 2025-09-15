@@ -15,7 +15,6 @@ import {
 import { IOContext } from '@vtex/api'
 
 import { PaymentConfigurationService } from '../payment-configuration'
-import { PaymentConnectorLogger } from '../../utils/structured-logger'
 import {
   BRASPAG_STATUS,
   ERROR_CODES,
@@ -25,6 +24,7 @@ import {
 import { StoredBraspagPayment } from '../../types/braspag-notifications'
 import { BraspagClientFactory } from '../braspag-client-factory/types'
 import { PaymentStorage } from '../payment-storage/types'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 
 interface BraspagPayment {
   PaymentId: string
@@ -42,16 +42,14 @@ export class BraspagPixPaymentService implements PixPaymentService {
     private storageService: PaymentStorage,
     private clientFactory: BraspagClientFactory,
     private vtexContext: IOContext,
-    private logger: PaymentConnectorLogger
+    private logger: DatadogCompatibleLogger
   ) {}
 
   public async cancelPayment(
     request: CancellationRequest
   ): Promise<CancellationResponse> {
-    const operationLogger = this.logger.forOperation('CANCEL')
-
     try {
-      operationLogger.info('Starting PIX cancellation', {
+      this.logger.info('CANCEL: Starting PIX cancellation', {
         paymentId: request.paymentId,
       })
 
@@ -66,7 +64,7 @@ export class BraspagPixPaymentService implements PixPaymentService {
       // Handle cancellation based on status
       return this.handleCancellationByStatus(request, currentStatus)
     } catch (error) {
-      operationLogger.error('PIX cancellation failed', error)
+      this.logger.error('CANCEL: PIX cancellation failed', error)
 
       return Cancellations.deny(request, {
         code: ERROR_CODES.ERROR,
@@ -80,10 +78,8 @@ export class BraspagPixPaymentService implements PixPaymentService {
   public async settlePayment(
     request: SettlementRequest
   ): Promise<SettlementResponse> {
-    const operationLogger = this.logger.forOperation('SETTLE')
-
     try {
-      operationLogger.info('Starting PIX settlement', {
+      this.logger.info('SETTLE: Starting PIX settlement', {
         paymentId: request.paymentId,
         tid: request.tid,
       })
@@ -101,7 +97,7 @@ export class BraspagPixPaymentService implements PixPaymentService {
       // Handle settlement based on status
       return this.handleSettlementByStatus(request, currentStatus)
     } catch (error) {
-      operationLogger.error('PIX settlement failed', error)
+      this.logger.error('SETTLE: PIX settlement failed', error)
 
       return Settlements.deny(request, {
         code: ERROR_CODES.ERROR,
@@ -243,7 +239,7 @@ export class PixPaymentServiceFactory {
     storageService: PaymentStorage,
     clientFactory: BraspagClientFactory,
     vtexContext: IOContext,
-    logger: PaymentConnectorLogger
+    logger: DatadogCompatibleLogger
   ): PixPaymentService {
     return new BraspagPixPaymentService(
       configService,

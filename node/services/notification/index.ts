@@ -1,5 +1,4 @@
-import { Logger } from '@vtex/api'
-
+import { Logger } from '../../tools/datadog/datadog'
 import { NotificationHandler, NotificationContext } from './types'
 
 export class NotificationResponse {
@@ -47,19 +46,18 @@ export class NotificationService {
     context: NotificationContext
   ): Promise<NotificationResponse> {
     try {
-      this.logger.info(
-        `NOTIFICATION: Received notification - type: ${typeof notification}, hasBody: ${!!notification}`
-      )
+      this.logger.info('NOTIFICATION: Received notification', {
+        type: typeof notification,
+        hasBody: !!notification,
+      })
 
       // Find appropriate handler
       const handler = this.handlers.find(h => h.canHandle(notification))
 
       if (!handler) {
-        this.logger.warn(
-          `NOTIFICATION: No handler found for notification - ${JSON.stringify(
-            notification
-          )}`
-        )
+        this.logger.warn('NOTIFICATION: No handler found for notification', {
+          notification,
+        })
 
         return NotificationResponse.badRequest('Unsupported notification type')
       }
@@ -67,15 +65,15 @@ export class NotificationService {
       // Process notification
       await handler.handle(notification, context)
 
-      this.logger.info('NOTIFICATION: Successfully processed')
+      this.logger.info('NOTIFICATION: Successfully processed', {})
 
       return NotificationResponse.success()
     } catch (error) {
-      this.logger.error(
-        `NOTIFICATION: Processing failed - error: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }, notification: ${JSON.stringify(notification)}`
-      )
+      this.logger.error('NOTIFICATION: Processing failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        notification,
+        stack: error instanceof Error ? error.stack : undefined,
+      })
 
       return NotificationResponse.error(
         'Failed to process notification',

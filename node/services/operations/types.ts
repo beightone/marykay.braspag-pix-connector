@@ -6,10 +6,10 @@ import {
   SettlementResponse,
 } from '@vtex/payment-provider'
 
-import { StructuredLogger } from '../../utils/structured-logger'
 import { PaymentConfigurationService } from '../payment-configuration'
 import { VBasePaymentStorageService } from '../payment-storage'
 import { BraspagClientFactory } from '../braspag-client-factory/types'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 
 export interface PixOperationsService {
   cancelPayment(
@@ -23,7 +23,7 @@ export interface PixOperationsServiceDependencies {
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
   context: IOContext
-  logger: StructuredLogger
+  logger: DatadogCompatibleLogger
 }
 
 export interface PixOperationsServiceFactoryParams {
@@ -31,5 +31,5 @@ export interface PixOperationsServiceFactoryParams {
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
   context: IOContext
-  logger: StructuredLogger
+  logger: DatadogCompatibleLogger
 }
