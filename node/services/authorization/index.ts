@@ -113,12 +113,22 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     payment: BraspagPayment,
     merchantOrderId: string
   ) {
-    await this.deps.storageService.savePaymentData(paymentId, {
+    const paymentData = {
       pixPaymentId: payment.PaymentId,
       braspagTransactionId: payment.Tid,
       merchantOrderId,
       status: payment.Status,
       type: PAYMENT_TYPES.PIX,
+    }
+
+    await this.deps.storageService.savePaymentData(paymentId, paymentData)
+    await this.deps.storageService.savePaymentData(
+      payment.PaymentId,
+      paymentData
+    )
+    this.deps.logger.info('Payment data stored with both keys', {
+      vtexPaymentId: paymentId,
+      braspagPaymentId: payment.PaymentId,
     })
   }
 }
