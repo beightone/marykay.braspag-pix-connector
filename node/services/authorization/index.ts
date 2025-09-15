@@ -70,6 +70,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     this.deps.logger.info('PIX sale created successfully', {
       paymentId: payment.PaymentId,
       status: payment.Status,
+      pixResponse,
     })
 
     return Authorizations.pending(authorization, {
