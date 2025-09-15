@@ -49,6 +49,13 @@
       "attrs": {
         "host": "authsandbox.braspag.com.br"
       }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "http-intake.logs.datadoghq.com",
+        "path": "/api/v2/logs"
+      }
     }
   ],
   "billingOptions": {
