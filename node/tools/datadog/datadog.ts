@@ -10,12 +10,10 @@ export class Logger {
   constructor(ctx: Context, datadog: Datadog) {
     this.ctx = ctx
     this.datadog = datadog
-    
+
     // Enable Datadog based on proper conditions
-    this.enabled =true
-      // ctx.vtex?.workspace !== 'master'
-    
-    
+    this.enabled = true
+    // ctx.vtex?.workspace !== 'master'
   }
 
   private async catchError(data: unknown) {

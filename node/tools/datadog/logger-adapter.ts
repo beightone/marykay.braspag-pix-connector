@@ -1,9 +1,6 @@
 import { Logger as DatadogLogger } from './datadog'
 import { DatadogCompatibleLogger } from './logger.types'
 
-/**
- * Adaptador para tornar o Datadog Logger compatível com a interface esperada pelos serviços
- */
 export class DatadogLoggerAdapter implements DatadogCompatibleLogger {
   constructor(private datadogLogger: DatadogLogger) {}
 
