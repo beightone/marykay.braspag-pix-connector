@@ -4,6 +4,7 @@ import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { BraspagNotification } from '../../types/braspag-notifications'
 import { NotificationService } from '../../services'
 import { NotificationContext } from '../../services/notification/types'
+import { StoreServicesClient } from '../../clients/store-services'
 
 export async function notifications(ctx: Context) {
   const datadogLogger = new Logger(ctx, ctx.clients.datadog)
@@ -26,6 +27,8 @@ export async function notifications(ctx: Context) {
       return
     }
 
+    const storeServicesClient = new StoreServicesClient(ctx.vtex, {})
+
     const notificationContext: NotificationContext = {
       status: ctx.status || 200,
       body: ctx.body,
@@ -36,6 +39,10 @@ export async function notifications(ctx: Context) {
           saveJSON: async (bucket: string, key: string, data: unknown) => {
             await ctx.clients.vbase.saveJSON(bucket, key, data)
           },
+        },
+        storeServices: {
+          forwardBraspagNotification: (notification: unknown) =>
+            storeServicesClient.forwardBraspagNotification(notification),
         },
       },
       request: {
@@ -53,6 +60,7 @@ export async function notifications(ctx: Context) {
         paymentId: body.PaymentId,
         changeType: body.ChangeType,
       })
+
       ctx.status = 200
       ctx.body = { message: 'Notification processed successfully' }
     } else {
@@ -64,6 +72,7 @@ export async function notifications(ctx: Context) {
           data: result.data,
         }
       )
+
       ctx.status = result.status
       ctx.body = {
         error: result.message,
