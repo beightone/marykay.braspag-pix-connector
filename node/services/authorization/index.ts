@@ -20,6 +20,7 @@ import {
   BraspagPayment,
   PixAuthorizationServiceFactoryParams,
 } from './types'
+import { customData as mockCustomData } from '../../__mock__/customData'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -38,14 +39,40 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.context
     )
 
+    // TODO USAR CUSTOMDATA DE PRODUÇÃO
+    const mockCustomDataTyped = mockCustomData as any
+    const splitApp = mockCustomDataTyped.customApps?.find(
+      (app: any) => app.id === 'splitsimulation'
+    )
+
+    const retailersApp = mockCustomDataTyped.customApps?.find(
+      (app: any) => app.id === 'retailers'
+    )
+
+    const splitProfitPct = splitApp?.fields?.splitProfitPct
+      ? parseFloat(splitApp.fields.splitProfitPct)
+      : undefined
+
+    const splitDiscountPct = splitApp?.fields?.splitDiscountPct
+      ? parseFloat(splitApp.fields.splitDiscountPct)
+      : undefined
+
+    const consultantData = JSON.parse(retailersApp.fields.consultant)
+
     const pixRequest = createBraspagPixSaleRequest(authorization, {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
+      monitfyConsultantId: consultantData.monitfyConsultantId,
+      splitProfitPct,
+      splitDiscountPct,
     })
 
     this.deps.logger.info('Creating PIX sale', {
       merchantOrderId: pixRequest.MerchantOrderId,
       amount: pixRequest.Payment.Amount,
+      splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
+      monitfyConsultantId: consultantData.monitfyConsultantId,
+      splitProfitPct,
     })
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
@@ -70,10 +97,11 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     this.deps.logger.info('PIX sale created successfully', {
       paymentId: payment.PaymentId,
       status: payment.Status,
+      splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
       pixResponse,
     })
 
-    return Authorizations.pending(authorization, {
+    const authResponse = Authorizations.pending(authorization, {
       tid: payment.PaymentId,
       code: payment.Status?.toString() ?? '1',
       message: RESPONSE_MESSAGES.PIX_CREATED,
@@ -83,17 +111,18 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       delayToAutoSettleAfterAntifraud:
         PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
     })
+
+    return authResponse
   }
 
   private getMerchantSettings(authorization: AuthorizationRequest) {
     const extendedAuth = authorization as ExtendedAuthorizationRequest
 
-    // Transform merchantSettings from object to array format
     const merchantSettingsArray = Object.entries(
       extendedAuth.merchantSettings ?? {}
     ).map(([name, value]) => ({
       name,
-      value: String(value), // Ensure value is a string
+      value: String(value),
     }))
 
     const authData = {
