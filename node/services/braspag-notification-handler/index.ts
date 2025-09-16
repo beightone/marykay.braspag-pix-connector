@@ -5,12 +5,15 @@ import {
 } from '../../types/braspag-notifications'
 import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { NotificationHandler, NotificationContext } from '../notification/types'
+import { BRASPAG_STATUS } from '../../constants/payment-constants'
 
 export class BraspagNotificationHandler implements NotificationHandler {
   constructor(private logger: DatadogLoggerAdapter) {}
 
   public canHandle(notification: unknown): notification is BraspagNotification {
-    return this.isBraspagNotification(notification)
+    const canHandle = this.isBraspagNotification(notification)
+
+    return canHandle
   }
 
   public async handle(
@@ -34,11 +37,28 @@ export class BraspagNotificationHandler implements NotificationHandler {
 
     if (!storedPayment) {
       this.logger.warn('BRASPAG: Payment not found in storage', { PaymentId })
+
       throw new Error(`Payment ${PaymentId} not found in storage`)
     }
 
     await this.processChangeType(notification, storedPayment, context)
   }
+
+  // private getChangeTypeName(changeType: number): string {
+  //   switch (changeType) {
+  //     case BraspagChangeType.PaymentStatusChange:
+  //       return 'PaymentStatusChange'
+
+  //     case BraspagChangeType.FraudAnalysisChange:
+  //       return 'FraudAnalysisChange'
+
+  //     case BraspagChangeType.Chargeback:
+  //       return 'Chargeback'
+
+  //     default:
+  //       return `Unknown(${changeType})`
+  //   }
+  // }
 
   private isBraspagNotification(
     notification: unknown
@@ -58,12 +78,13 @@ export class BraspagNotificationHandler implements NotificationHandler {
     context: NotificationContext
   ): Promise<StoredBraspagPayment | null> {
     try {
-      return await context.clients.vbase.getJSON<StoredBraspagPayment>(
-        'braspag-payments',
-        paymentId,
-        true
-      )
+      const storedPayment = await context.clients.vbase.getJSON<
+        StoredBraspagPayment
+      >('braspag-payments', paymentId, true)
+
+      return storedPayment
     } catch (error) {
+
       this.logger.error('BRASPAG: Failed to retrieve stored payment', error, {
         paymentId,
       })
@@ -87,6 +108,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           amount: Amount,
           storedPayment,
           context,
+          notification,
         })
         break
 
@@ -123,8 +145,16 @@ export class BraspagNotificationHandler implements NotificationHandler {
     amount: number | undefined
     storedPayment: StoredBraspagPayment
     context: NotificationContext
+    notification: BraspagNotification
   }): Promise<void> {
-    const { paymentId, status, amount, storedPayment, context } = params
+    const {
+      paymentId,
+      status,
+      amount,
+      storedPayment,
+      context,
+      notification,
+    } = params
 
     this.logger.info('BRASPAG: Payment status changed', {
       paymentId,
@@ -147,9 +177,84 @@ export class BraspagNotificationHandler implements NotificationHandler {
       updatedPayment
     )
 
-    // TODO: Implement callback to VTEX if needed for status changes
-    // This would typically involve calling the VTEX callback URL
-    // to notify about payment status changes
+    // Process split payment and callback for PAID status
+    if (status === BRASPAG_STATUS.PAID) {
+      await this.processPaymentPaid(notification, storedPayment, context)
+    }
+  }
+
+  /**
+   * Process split payment and send callback to VTEX when payment is confirmed
+   */
+  private async processPaymentPaid(
+    notification: BraspagNotification,
+    storedPayment: StoredBraspagPayment,
+    context: NotificationContext
+  ): Promise<void> {
+    const { PaymentId } = notification
+
+    try {
+      this.logger.info('BRASPAG: Processing paid PIX payment', {
+        paymentId: PaymentId,
+        merchantOrderId: storedPayment.merchantOrderId,
+      })
+
+      await this.forwardToStoreServices(notification, context)
+
+      // 2. Additional processing could be added here:
+      // - Trigger settlement
+      // - Send customer notifications
+      // - Update business metrics
+
+      this.logger.info('BRASPAG: PIX payment processing completed', {
+        paymentId: PaymentId,
+        merchantOrderId: storedPayment.merchantOrderId,
+      })
+    } catch (error) {
+      this.logger.error('BRASPAG: Failed to process paid PIX payment', error, {
+        paymentId: PaymentId,
+        merchantOrderId: storedPayment.merchantOrderId,
+      })
+    }
+  }
+
+  /**
+   * Forward notification to store-services for split processing
+   */
+  private async forwardToStoreServices(
+    notification: BraspagNotification,
+    context: NotificationContext
+  ): Promise<void> {
+    if (!context.clients.storeServices) {
+      this.logger.warn('BRASPAG: Store Services client not available', {
+        paymentId: notification.PaymentId,
+      })
+
+      return
+    }
+
+    try {
+      this.logger.info('BRASPAG: Forwarding notification to store-services', {
+        paymentId: notification.PaymentId,
+        changeType: notification.ChangeType,
+        status: notification.Status,
+      })
+
+      await context.clients.storeServices.forwardBraspagNotification(
+        notification
+      )
+
+      this.logger.info('BRASPAG: Successfully forwarded to store-services', {
+        paymentId: notification.PaymentId,
+      })
+    } catch (error) {
+      this.logger.error('BRASPAG: Failed to forward to store-services', error, {
+        paymentId: notification.PaymentId,
+        notification,
+      })
+
+      throw error
+    }
   }
 
   private async handleFraudAnalysisChange(params: {
@@ -165,11 +270,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
       status,
     })
 
-    // Update stored payment with fraud analysis information
     const updatedPayment: StoredBraspagPayment = {
       ...storedPayment,
       lastUpdated: new Date().toISOString(),
-      // Add fraud analysis specific fields if needed
     }
 
     await context.clients.vbase.saveJSON(
@@ -192,12 +295,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
       status,
     })
 
-    // Update stored payment with chargeback information
     const updatedPayment: StoredBraspagPayment = {
       ...storedPayment,
       status,
       lastUpdated: new Date().toISOString(),
-      // Add chargeback specific fields if needed
     }
 
     await context.clients.vbase.saveJSON(
