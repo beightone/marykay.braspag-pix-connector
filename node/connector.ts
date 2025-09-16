@@ -20,7 +20,8 @@ import {
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
 import { Clients } from './clients'
-import { LoggerFactory } from './utils/structured-logger'
+import { Logger } from './tools/datadog/datadog'
+import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
 import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
@@ -50,31 +51,53 @@ export default class BraspagConnector extends PaymentProvider<
   PaymentProviderState,
   CustomContextFields
 > {
-  private readonly logger = LoggerFactory.createLogger('CONNECTOR')
+  private readonly datadogLogger: Logger
+  private readonly logger: DatadogLoggerAdapter
   private readonly configService = PaymentConfigurationServiceFactory.create()
+
   private readonly storageService = PaymentStorageServiceFactory.createPaymentStorage(
     this.context.clients.vbase
   )
 
-  private readonly pixAuthService = PixAuthorizationServiceFactory.create({
-    configService: this.configService,
-    storageService: this.storageService,
-    clientFactory: braspagClientFactory,
-    context: this.context.vtex,
-    logger: this.logger,
-  })
+  private readonly pixAuthService: any
 
-  private readonly pixOpsService = PixOperationsServiceFactory.create({
-    configService: this.configService,
-    storageService: this.storageService,
-    clientFactory: braspagClientFactory,
-    context: this.context.vtex,
-    logger: this.logger,
-  })
+  private readonly pixOpsService: any
 
-  private readonly webhookService = WebhookInboundServiceFactory.create(
-    this.logger
-  )
+  private readonly webhookService: any
+
+  constructor(context: any) {
+    super(context)
+
+    // Initialize Datadog logger
+    this.datadogLogger = new Logger(
+      this.context as Context,
+      this.context.clients.datadog
+    )
+
+    // Create adapter for services compatibility
+    this.logger = new DatadogLoggerAdapter(this.datadogLogger)
+
+    // Initialize services after logger
+    this.pixAuthService = PixAuthorizationServiceFactory.create({
+      configService: this.configService,
+      storageService: this.storageService,
+      clientFactory: braspagClientFactory,
+      context: this.context.vtex,
+      logger: this.logger,
+    })
+
+    this.pixOpsService = PixOperationsServiceFactory.create({
+      configService: this.configService,
+      storageService: this.storageService,
+      clientFactory: braspagClientFactory,
+      context: this.context.vtex,
+      logger: this.logger,
+    })
+
+    this.webhookService = WebhookInboundServiceFactory.create(
+      this.datadogLogger
+    )
+  }
 
   public async authorize(
     authorization: AuthorizationRequest & {
@@ -91,7 +114,7 @@ export default class BraspagConnector extends PaymentProvider<
   ): Promise<AuthorizationResponse> {
     this.logger.info('Authorize called', {
       paymentId: authorization.paymentId,
-      paymentMethod: authorization.paymentMethod,
+      paymentMethod: (authorization as any).paymentMethod,
       isTestSuite: this.isTestSuite,
     })
 
@@ -138,10 +161,10 @@ export default class BraspagConnector extends PaymentProvider<
   ) {
     await persistAuthorizationResponse(this.context.clients.vbase, resp)
 
-    this.logger.info('Attempting callback to Test Suite...')
+    this.logger.info('Attempting callback to Test Suite...', {})
     try {
       this.callback(req, resp)
-      this.logger.info('Callback successful')
+      this.logger.info('Callback successful', {})
     } catch (error) {
       this.logger.warn(
         'Callback failed (TLS error expected in test environment)',
@@ -162,7 +185,7 @@ export default class BraspagConnector extends PaymentProvider<
       return persistedResponse
     }
 
-    this.logger.info('No persisted response found, executing flow')
+    this.logger.info('No persisted response found, executing flow', {})
 
     return executeAuthorization(authorization, response =>
       this.saveAndRetry(authorization, response)

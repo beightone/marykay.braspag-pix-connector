@@ -10,6 +10,9 @@ export interface NotificationContext {
       ) => Promise<T | null>
       saveJSON: (bucket: string, key: string, data: unknown) => Promise<void>
     }
+    storeServices?: {
+      forwardBraspagNotification: (notification: unknown) => Promise<unknown>
+    }
   }
   request: {
     body: unknown
