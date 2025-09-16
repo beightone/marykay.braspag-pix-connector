@@ -5,6 +5,7 @@ import {
   SplitPaymentEntry,
   Customer,
 } from '../clients/braspag/types'
+import { customData } from '../__mock__/customData'
 
 /**
  * Configuration options for Braspag PIX adapter
@@ -13,6 +14,8 @@ export interface BraspagPixAdapterConfig {
   merchantId: string
   monitfyConsultantId?: string
   notificationUrl?: string
+  splitProfitPct?: number
+  splitDiscountPct?: number
 }
 
 /**
@@ -40,12 +43,25 @@ export interface BuyerInfo {
 }
 
 /**
- * Extended authorization request with split support
+ * Mary Kay custom data structure from VTEX order
+ */
+export interface MaryKayCustomData {
+  customApps?: Array<{
+    fields: Record<string, string | undefined>
+    id: string
+    major: number
+  }>
+  customFields?: unknown[]
+}
+
+/**
+ * Extended authorization request with split support and Mary Kay custom data
  */
 export interface AuthorizationWithSplits {
   transactionId: string
   value: number
   splits?: SplitTransaction[]
+  customData?: MaryKayCustomData
   miniCart: {
     buyer: BuyerInfo
   }
@@ -80,6 +96,12 @@ export class BraspagPixRequestBuilder {
     return this
   }
 
+  public setProvider(): this {
+    this.request.Provider = 'Braspag'
+
+    return this
+  }
+
   /**
    * Set payment information with amount and type
    */
@@ -92,12 +114,65 @@ export class BraspagPixRequestBuilder {
       Amount: amount,
       Provider: 'Braspag',
       ...(splitPayments.length > 0 && { SplitPayments: splitPayments }),
-      ...(config.notificationUrl && {
-        NotificationUrl: config.notificationUrl,
-      }),
     }
 
     return this
+  }
+
+  /**
+   * Extract split simulation data from VTEX customData
+   */
+  private extractSplitSimulation(
+    customData?: MaryKayCustomData
+  ): {
+    splitProfitPct?: number
+    splitDiscountPct?: number
+  } {
+    const splitApp = customData?.customApps?.find(
+      app => app.id === 'splitsimulation'
+    )
+
+    if (!splitApp?.fields) {
+      return {}
+    }
+
+    return {
+      splitProfitPct: splitApp.fields.splitProfitPct
+        ? parseFloat(splitApp.fields.splitProfitPct)
+        : undefined,
+      splitDiscountPct: splitApp.fields.splitDiscountPct
+        ? parseFloat(splitApp.fields.splitDiscountPct)
+        : undefined,
+    }
+  }
+
+  /**
+   * Extract consultant data from VTEX customData
+   */
+  private extractConsultantData(
+    customData?: MaryKayCustomData
+  ): {
+    monitfyConsultantId?: string
+    consultantId?: string
+  } {
+    const retailersApp = customData?.customApps?.find(
+      app => app.id === 'retailers'
+    )
+
+    if (!retailersApp?.fields?.consultant) {
+      return {}
+    }
+
+    try {
+      const consultantData = JSON.parse(retailersApp.fields.consultant)
+
+      return {
+        monitfyConsultantId: consultantData.monitfyConsultantId,
+        consultantId: consultantData.consultantId,
+      }
+    } catch (error) {
+      return {}
+    }
   }
 
   /**
@@ -112,7 +187,9 @@ export class BraspagPixRequestBuilder {
       throw new Error('Invalid request: missing required fields')
     }
 
-    return this.request as CreatePixSaleRequest
+    const finalRequest = this.request as CreatePixSaleRequest
+
+    return finalRequest
   }
 
   /**
@@ -168,18 +245,51 @@ export class BraspagPixRequestBuilder {
       this.authorization.splits.forEach((split: SplitTransaction) => {
         splitPayments.push(this.createSplitPaymentEntry(split))
       })
-    } else if (config.monitfyConsultantId) {
-      splitPayments.push(
-        this.createDefaultSplitPayment(config.monitfyConsultantId, totalAmount)
-      )
+
+      return splitPayments
+    }
+
+    const splitData = this.extractSplitSimulation(
+      customData as MaryKayCustomData
+    )
+
+    const consultantData = this.extractConsultantData(
+      customData as MaryKayCustomData
+    )
+
+    const monitfyConsultantId =
+      consultantData.monitfyConsultantId ?? config.monitfyConsultantId
+
+    if (monitfyConsultantId && splitData.splitProfitPct) {
+      const consultantPercentage = splitData.splitProfitPct / 100
+      const consultantAmount = Math.round(totalAmount * consultantPercentage)
+      const marketplaceAmount = totalAmount - consultantAmount
+
+      const consultantSplit = {
+        SubordinateMerchantId: '302042D6-F59E-41A8-977F-35659D114C18',
+        Amount: consultantAmount,
+        Fares: {
+          Mdr: 50.0,
+          Fee: 100,
+        },
+      }
+
+      const marketplaceSplit = {
+        SubordinateMerchantId: '85C49198-837A-423C-89D0-9087B5D16D49', // Mary Kay's merchant ID
+        Amount: marketplaceAmount,
+        Fares: {
+          Mdr: 50.0,
+          Fee: 100,
+        },
+      }
+
+      splitPayments.push(consultantSplit)
+      splitPayments.push(marketplaceSplit)
     }
 
     return splitPayments
   }
 
-  /**
-   * Create a split payment entry from split transaction
-   */
   private createSplitPaymentEntry(split: SplitTransaction): SplitPaymentEntry {
     const splitAmount = Math.round(split.amount * 100)
 
@@ -193,43 +303,36 @@ export class BraspagPixRequestBuilder {
     }
   }
 
-  /**
-   * Create default split payment when no splits are specified
-   */
-  private createDefaultSplitPayment(
-    merchantId: string,
-    amount: number
-  ): SplitPaymentEntry {
-    return {
-      SubordinateMerchantId: merchantId,
-      Amount: amount,
-    }
-  }
+  // private createDefaultSplitPayment(
+  //   merchantId: string,
+  //   amount: number
+  // ): SplitPaymentEntry {
+  //   return {
+  //     SubordinateMerchantId: merchantId,
+  //     Amount: amount,
+  //   }
+  // }
 }
 
-/**
- * Factory class for creating Braspag PIX adapters
- */
 export class BraspagPixAdapterFactory {
-  /**
-   * Create a PIX sale request using the builder pattern
-   */
   public static createPixSaleRequest(
     authorization: AuthorizationRequest,
     config: BraspagPixAdapterConfig
   ): CreatePixSaleRequest {
     const authWithSplits = (authorization as unknown) as AuthorizationWithSplits
 
-    return new BraspagPixRequestBuilder(authWithSplits)
+    const builder = new BraspagPixRequestBuilder(authWithSplits)
+
+    const request = builder
       .setMerchantOrderId()
+      .setProvider()
       .setCustomer()
       .setPayment(config)
       .build()
+
+    return request
   }
 
-  /**
-   * Create PIX payment app data for QR code display
-   */
   public static createPixPaymentAppData(params: {
     qrCodeString?: string
     qrCodeBase64?: string
@@ -252,7 +355,6 @@ export class BraspagPixAdapterFactory {
   }
 }
 
-// Backward compatibility exports
 export const createBraspagPixSaleRequest =
   BraspagPixAdapterFactory.createPixSaleRequest
 
