@@ -24,10 +24,9 @@ export class BraspagClient extends ExternalClient {
     context: IOContext & { settings?: BraspagCredentials },
     options?: InstanceOptions
   ) {
-    // Build configuration first
     const credentials: BraspagCredentials = context.settings || {
-      merchantId: 'E28449FA-1268-42BF-B4D3-313BF447285E',
-      clientSecret: 'q2R/Ya3zlXFWQ9Ar8FylNbbIyhFJAKvw+eEknMsKTD8=',
+      merchantId: '85c49198-837a-423c-89d0-9087b5d16d49',
+      clientSecret: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
       merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
     }
 
@@ -35,14 +34,13 @@ export class BraspagClient extends ExternalClient {
     const config = BraspagConfigBuilder.build(credentials, isProduction)
 
     super(config.environment.apiUrl, context, {
+      timeout: 30000, // TODO verificar tempo limite adequado com a braspag
       ...options,
       headers: {
-        'X-Vtex-Use-Https': 'true',
-        'VTEX-API-Is-TestSuite': 'true',
+        ...options?.headers,
       },
     })
 
-    // Initialize instance properties
     this.config = config
     this.logger = new VtexLogger((context as any).logger)
     this.authenticator = new BraspagAuthenticator(
@@ -71,19 +69,23 @@ export class BraspagClient extends ExternalClient {
 
     try {
       await this.authenticator.getAccessToken()
-      const headers = this.authenticator.getAuthHeaders()
+      // const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
         '/v2/sales/',
         payload,
-        { headers }
+        {
+          headers: {
+            MerchantId: '85C49198-837A-423C-89D0-9087B5D16D49',
+            MerchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
+          },
+        }
       )
 
       this.logger.info(`BRASPAG: ${operation} successful`, {
         merchantOrderId: payload.MerchantOrderId,
         paymentId: response.Payment?.PaymentId,
         status: response.Payment?.Status,
-        hasQrCode: !!response.Payment?.QrCodeString,
       })
 
       return response
@@ -92,6 +94,7 @@ export class BraspagClient extends ExternalClient {
         merchantOrderId: payload.MerchantOrderId,
         error: error instanceof Error ? error.message : 'Unknown error',
       })
+
       throw error
     }
   }

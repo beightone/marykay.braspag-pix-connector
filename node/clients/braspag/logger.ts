@@ -3,7 +3,6 @@ export interface Logger {
   info(message: string, data?: Record<string, unknown>): void
   error(message: string, data?: Record<string, unknown>): void
   warn(message: string, data?: Record<string, unknown>): void
-  debug(message: string, data?: Record<string, unknown>): void
 }
 
 export class ConsoleLogger implements Logger {
@@ -18,10 +17,6 @@ export class ConsoleLogger implements Logger {
   public warn(message: string, data?: Record<string, unknown>): void {
     console.warn(`WARN: ${message}`, data ?? '')
   }
-
-  public debug(message: string, data?: Record<string, unknown>): void {
-    console.debug(`DEBUG: ${message}`, data ?? '')
-  }
 }
 
 export class VtexLogger implements Logger {
@@ -30,7 +25,6 @@ export class VtexLogger implements Logger {
       info?: (message: string, data?: Record<string, unknown>) => void
       error?: (message: string, data?: Record<string, unknown>) => void
       warn?: (message: string, data?: Record<string, unknown>) => void
-      debug?: (message: string, data?: Record<string, unknown>) => void
     }
   ) {}
 
@@ -44,9 +38,5 @@ export class VtexLogger implements Logger {
 
   public warn(message: string, data?: Record<string, unknown>): void {
     this.vtexLogger?.warn?.(message, data)
-  }
-
-  public debug(message: string, data?: Record<string, unknown>): void {
-    this.vtexLogger?.debug?.(message, data)
   }
 }

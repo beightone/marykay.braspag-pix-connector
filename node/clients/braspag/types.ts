@@ -7,6 +7,7 @@ export type AuthenticateResponse = {
 export type CreatePixSaleRequest = {
   MerchantOrderId: string
   Customer?: Customer
+  Provider: string
   Payment: PaymentEntry
 }
 

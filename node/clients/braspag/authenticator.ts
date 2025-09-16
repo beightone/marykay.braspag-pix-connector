@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable no-console */
 import { BraspagConfig } from './config'
 import { Logger } from './logger'
@@ -21,7 +22,6 @@ export class BraspagAuthenticator {
 
   public async getAccessToken(): Promise<string> {
     if (this.isTokenValid()) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       return this.accessToken!
     }
 
@@ -48,12 +48,6 @@ export class BraspagAuthenticator {
 
     const basicAuth = Buffer.from(`${merchantId}:${clientSecret}`).toString(
       'base64'
-    )
-
-    console.log(
-      'BRASPAG: Authenticating with merchantId',
-      merchantId,
-      clientSecret
     )
 
     try {
