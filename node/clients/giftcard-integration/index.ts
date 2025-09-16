@@ -8,7 +8,6 @@ export class GiftcardsIntegrationClient extends ExternalClient {
       ...options,
       headers: {
         ...options?.headers,
-        'X-VTEX-USE-HTTPS': 'true',
       },
     })
   }
