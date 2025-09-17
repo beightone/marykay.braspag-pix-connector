@@ -14,7 +14,6 @@
     "@vtex/api": "^7.0.0",
     "@vtex/test-tools": "^1.0.0",
     "@vtex/tsconfig": "^0.6.0",
-    "marykay.braspag-pix-connector": "https://pixconnectortest--marykay.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@0.0.3+build1757613720/public/_types/react",
     "typescript": "5.5.3"
   },
   "scripts": {
