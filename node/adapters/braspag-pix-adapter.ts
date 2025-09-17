@@ -5,71 +5,74 @@ import {
   SplitPaymentEntry,
   Customer,
 } from '../clients/braspag/types'
-import { customData } from '../__mock__/customData'
+import { customData as customDataMocked } from '../__mock__/customData'
+import {
+  BraspagPixAdapterConfig,
+  AuthorizationWithSplits,
+  MaryKayCustomData,
+  BuyerInfo,
+  SplitTransaction,
+} from './types'
 
-/**
- * Configuration options for Braspag PIX adapter
- */
-export interface BraspagPixAdapterConfig {
-  merchantId: string
-  monitfyConsultantId?: string
-  notificationUrl?: string
-  splitProfitPct?: number
-  splitDiscountPct?: number
-}
+const MARY_KAY_SPLIT_CONFIG = {
+  CONSULTANT_MERCHANT_ID: 'E28449FA-1268-42BF-B4D3-313BF447285E',
+  MARKETPLACE_MERCHANT_ID: '53548187-B270-414B-936E-32EBB2CBBE98',
 
-/**
- * Split transaction configuration
- */
-export interface SplitTransaction {
-  merchantId: string
-  amount: number
-  commission?: {
-    fee?: number
-    gateway?: number
+  DEFAULT_CONSULTANT_PERCENTAGE: 75, // 75%
+  DEFAULT_MARKETPLACE_PERCENTAGE: 25, // 25%
+
+  DEFAULT_MDR: 50.0,
+  DEFAULT_FEE: 100,
+} as const
+
+class MaryKaySplitCalculator {
+  /**
+   * Calculate split amounts based on total and percentage
+   */
+  public static calculateSplit(
+    totalAmount: number,
+    consultantPercentage: number = MARY_KAY_SPLIT_CONFIG.DEFAULT_CONSULTANT_PERCENTAGE
+  ): { consultantAmount: number; marketplaceAmount: number } {
+    const consultantAmount = Math.round(
+      totalAmount * (consultantPercentage / 100)
+    )
+
+    const marketplaceAmount = totalAmount - consultantAmount
+
+    return { consultantAmount, marketplaceAmount }
   }
-}
 
-/**
- * Buyer information interface
- */
-export interface BuyerInfo {
-  firstName: string
-  lastName: string
-  document: string
-  corporateName?: string
-  corporateDocument?: string
-  isCorporate: boolean
-}
+  /**
+   * Create consultant split entry
+   */
+  public static createConsultantSplit(amount: number): SplitPaymentEntry {
+    return {
+      SubordinateMerchantId: MARY_KAY_SPLIT_CONFIG.CONSULTANT_MERCHANT_ID,
+      Amount: amount,
+      Fares: {
+        Mdr: MARY_KAY_SPLIT_CONFIG.DEFAULT_MDR,
+        Fee: MARY_KAY_SPLIT_CONFIG.DEFAULT_FEE,
+      },
+    }
+  }
 
-/**
- * Mary Kay custom data structure from VTEX order
- */
-export interface MaryKayCustomData {
-  customApps?: Array<{
-    fields: Record<string, string | undefined>
-    id: string
-    major: number
-  }>
-  customFields?: unknown[]
-}
-
-/**
- * Extended authorization request with split support and Mary Kay custom data
- */
-export interface AuthorizationWithSplits {
-  transactionId: string
-  value: number
-  splits?: SplitTransaction[]
-  customData?: MaryKayCustomData
-  miniCart: {
-    buyer: BuyerInfo
+  /**
+   * Create marketplace split entry
+   */
+  public static createMarketplaceSplit(amount: number): SplitPaymentEntry {
+    return {
+      SubordinateMerchantId: MARY_KAY_SPLIT_CONFIG.MARKETPLACE_MERCHANT_ID,
+      Amount: amount,
+      Fares: {
+        Mdr: MARY_KAY_SPLIT_CONFIG.DEFAULT_MDR,
+        Fee: MARY_KAY_SPLIT_CONFIG.DEFAULT_FEE,
+      },
+    }
   }
 }
 
 /**
  * Builder class for creating Braspag PIX sale requests
- * Follows Builder pattern for complex object construction
  */
 export class BraspagPixRequestBuilder {
   private request: Partial<CreatePixSaleRequest> = {}
@@ -147,35 +150,6 @@ export class BraspagPixRequestBuilder {
   }
 
   /**
-   * Extract consultant data from VTEX customData
-   */
-  private extractConsultantData(
-    customData?: MaryKayCustomData
-  ): {
-    monitfyConsultantId?: string
-    consultantId?: string
-  } {
-    const retailersApp = customData?.customApps?.find(
-      app => app.id === 'retailers'
-    )
-
-    if (!retailersApp?.fields?.consultant) {
-      return {}
-    }
-
-    try {
-      const consultantData = JSON.parse(retailersApp.fields.consultant)
-
-      return {
-        monitfyConsultantId: consultantData.monitfyConsultantId,
-        consultantId: consultantData.consultantId,
-      }
-    } catch (error) {
-      return {}
-    }
-  }
-
-  /**
    * Build the final request object
    */
   public build(): CreatePixSaleRequest {
@@ -236,58 +210,36 @@ export class BraspagPixRequestBuilder {
    * Create split payments configuration
    */
   private createSplitPayments(
-    config: BraspagPixAdapterConfig,
+    _config: BraspagPixAdapterConfig,
     totalAmount: number
   ): SplitPaymentEntry[] {
-    const splitPayments: SplitPaymentEntry[] = []
-
     if (this.authorization.splits && this.authorization.splits.length > 0) {
-      this.authorization.splits.forEach((split: SplitTransaction) => {
-        splitPayments.push(this.createSplitPaymentEntry(split))
-      })
-
-      return splitPayments
+      return this.authorization.splits.map(split =>
+        this.createSplitPaymentEntry(split)
+      )
     }
 
+    return this.createMaryKaySplitPayments(totalAmount)
+  }
+
+  private createMaryKaySplitPayments(totalAmount: number): SplitPaymentEntry[] {
     const splitData = this.extractSplitSimulation(
-      customData as MaryKayCustomData
+      customDataMocked as MaryKayCustomData
     )
 
-    const consultantData = this.extractConsultantData(
-      customData as MaryKayCustomData
-    )
+    const consultantPercentage =
+      splitData.splitProfitPct ??
+      MARY_KAY_SPLIT_CONFIG.DEFAULT_CONSULTANT_PERCENTAGE
 
-    const monitfyConsultantId =
-      consultantData.monitfyConsultantId ?? config.monitfyConsultantId
+    const {
+      consultantAmount,
+      marketplaceAmount,
+    } = MaryKaySplitCalculator.calculateSplit(totalAmount, consultantPercentage)
 
-    if (monitfyConsultantId && splitData.splitProfitPct) {
-      const consultantPercentage = splitData.splitProfitPct / 100
-      const consultantAmount = Math.round(totalAmount * consultantPercentage)
-      const marketplaceAmount = totalAmount - consultantAmount
-
-      const consultantSplit = {
-        SubordinateMerchantId: '302042D6-F59E-41A8-977F-35659D114C18',
-        Amount: consultantAmount,
-        Fares: {
-          Mdr: 50.0,
-          Fee: 100,
-        },
-      }
-
-      const marketplaceSplit = {
-        SubordinateMerchantId: '85C49198-837A-423C-89D0-9087B5D16D49', // Mary Kay's merchant ID
-        Amount: marketplaceAmount,
-        Fares: {
-          Mdr: 50.0,
-          Fee: 100,
-        },
-      }
-
-      splitPayments.push(consultantSplit)
-      splitPayments.push(marketplaceSplit)
-    }
-
-    return splitPayments
+    return [
+      MaryKaySplitCalculator.createConsultantSplit(consultantAmount),
+      MaryKaySplitCalculator.createMarketplaceSplit(marketplaceAmount),
+    ]
   }
 
   private createSplitPaymentEntry(split: SplitTransaction): SplitPaymentEntry {
@@ -302,16 +254,6 @@ export class BraspagPixRequestBuilder {
       },
     }
   }
-
-  // private createDefaultSplitPayment(
-  //   merchantId: string,
-  //   amount: number
-  // ): SplitPaymentEntry {
-  //   return {
-  //     SubordinateMerchantId: merchantId,
-  //     Amount: amount,
-  //   }
-  // }
 }
 
 export class BraspagPixAdapterFactory {
