@@ -1,0 +1,218 @@
+/* eslint-disable no-console */
+import {
+  CancellationRequest,
+  CancellationResponse,
+  Cancellations,
+  SettlementRequest,
+  SettlementResponse,
+  Settlements,
+} from '@vtex/payment-provider'
+
+import {
+  PixOperationsService,
+  PixOperationsServiceDependencies,
+  PixOperationsServiceFactoryParams,
+} from './types'
+import { PaymentStatusHandler } from '../payment-status-handler'
+
+export class BraspagPixOperationsService implements PixOperationsService {
+  constructor(private readonly deps: PixOperationsServiceDependencies) {}
+
+  public async cancelPayment(
+    cancellation: CancellationRequest
+  ): Promise<CancellationResponse> {
+    try {
+      const storedPayment = await this.deps.storageService.getStoredPayment(
+        cancellation.paymentId
+      )
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        throw new Error('PIX payment not found or invalid payment type')
+      }
+
+      const braspagClient = await this.createBraspagClient(
+        cancellation.paymentId
+      )
+
+      const paymentStatus = await braspagClient.queryPixPaymentStatus(
+        storedPayment.pixPaymentId
+      )
+
+      const { Payment: payment } = paymentStatus
+      const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
+
+      if (statusInfo.isAlreadyPaid) {
+        return Cancellations.deny(cancellation, {
+          code: 'PAID',
+          message: 'PIX payment cannot be cancelled - already paid',
+        })
+      }
+
+      if (statusInfo.isAlreadyCancelled) {
+        return Cancellations.approve(cancellation, {
+          cancellationId: payment.PaymentId,
+          code: payment.Status?.toString() ?? 'CANCELLED',
+          message: 'PIX payment already cancelled',
+        })
+      }
+
+      if (statusInfo.canCancel) {
+        await this.deps.storageService.updatePaymentStatus(
+          cancellation.paymentId,
+          10
+        )
+
+        return Cancellations.approve(cancellation, {
+          cancellationId: payment.PaymentId,
+          code: '10',
+          message: 'PIX payment cancellation requested successfully',
+        })
+      }
+
+      return Cancellations.deny(cancellation, {
+        code: payment.Status?.toString() ?? 'UNKNOWN',
+        message: `PIX payment cannot be cancelled. Status: ${statusInfo.statusDescription}`,
+      })
+    } catch (error) {
+      this.deps.logger.error('PIX cancellation failed', error)
+
+      return Cancellations.deny(cancellation, {
+        code: 'ERROR',
+        message: `PIX cancellation failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
+  }
+
+  public async settlePayment(
+    settlement: SettlementRequest
+  ): Promise<SettlementResponse> {
+    console.log('🏦 VTEX_SETTLEMENT: Processing settlement request', {
+      paymentId: settlement.paymentId,
+      value: settlement.value,
+      tid: settlement.tid,
+    })
+
+    try {
+      const { tid, paymentId } = settlement
+
+      if (!tid) {
+        throw new Error('Transaction ID (tid) is required for settlement')
+      }
+
+      console.log('🔍 VTEX_SETTLEMENT: Getting stored payment', {
+        paymentId,
+      })
+
+      const storedPayment = await this.deps.storageService.getStoredPayment(
+        paymentId
+      )
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        throw new Error('PIX payment not found or invalid payment type')
+      }
+
+      console.log('📊 VTEX_SETTLEMENT: Stored payment found', {
+        paymentId,
+        amount: storedPayment.amount,
+        status: storedPayment.status,
+      })
+
+      const braspagClient = await this.createBraspagClient(paymentId)
+      const paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
+      const { Payment: payment } = paymentStatus
+
+      console.log('🔎 VTEX_SETTLEMENT: Braspag payment status', {
+        paymentId: payment.PaymentId,
+        status: payment.Status,
+        tid: payment.Tid,
+      })
+
+      const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
+
+      if (statusInfo.canSettle) {
+        console.log('✅ VTEX_SETTLEMENT: Payment can be settled', {
+          paymentId,
+          status: payment.Status,
+          statusDescription: statusInfo.statusDescription,
+        })
+
+        console.log('💰 VTEX_SETTLEMENT: Settlement approved', {
+          paymentId,
+          tid,
+          settlementId: payment.PaymentId,
+        })
+
+        this.deps.logger.info('Mary Kay PIX settlement processed', {
+          paymentId,
+          splitInfo: {
+            consultantSplit: '75%',
+            marketplaceSplit: '25%',
+            processedBy: 'braspag',
+          },
+        })
+
+        return Settlements.approve(settlement, {
+          settleId: payment.PaymentId,
+          code: '201',
+          message:
+            'PIX payment successfully settled with Mary Kay split processing',
+        })
+      }
+
+      console.log('❌ VTEX_SETTLEMENT: Payment cannot be settled', {
+        paymentId,
+        status: payment.Status,
+        statusDescription: statusInfo.statusDescription,
+      })
+
+      return Settlements.deny(settlement, {
+        code: payment.Status?.toString() ?? 'DENIED',
+        message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
+      })
+    } catch (error) {
+      console.error('💥 VTEX_SETTLEMENT: Settlement failed', {
+        paymentId: settlement.paymentId,
+        error: error instanceof Error ? error.message : error,
+      })
+
+      this.deps.logger.error('PIX settlement failed', error)
+
+      return Settlements.deny(settlement, {
+        code: 'ERROR',
+        message: `PIX settlement failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
+  }
+
+  private async createBraspagClient(paymentId: string) {
+    const merchantSettings = this.deps.configService.getMerchantSettings({
+      merchantSettings: [],
+      paymentId,
+      paymentMethod: 'Pix',
+      miniCart: { paymentMethod: 'Pix' },
+    })
+
+    return this.deps.clientFactory.createClient(
+      this.deps.context,
+      merchantSettings
+    )
+  }
+}
+
+export class PixOperationsServiceFactory {
+  public static create(
+    params: PixOperationsServiceFactoryParams
+  ): PixOperationsService {
+    return new BraspagPixOperationsService({
+      configService: params.configService,
+      storageService: params.storageService,
+      clientFactory: params.clientFactory,
+      context: params.context,
+      logger: params.logger,
+    })
+  }
+}

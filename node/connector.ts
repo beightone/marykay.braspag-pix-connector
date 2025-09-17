@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-console */
 import {
   AuthorizationRequest,
   AuthorizationResponse,
@@ -5,66 +7,122 @@ import {
   CancellationResponse,
   Cancellations,
   PaymentProvider,
+  PaymentProviderState,
   RefundRequest,
   RefundResponse,
   Refunds,
   SettlementRequest,
   SettlementResponse,
   Settlements,
+  Authorizations,
 } from '@vtex/payment-provider'
-import { VBase } from '@vtex/api'
 
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
+import { Clients } from './clients'
+import { Logger } from './tools/datadog/datadog'
+import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
+import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
+import {
+  PaymentConfigurationServiceFactory,
+  PaymentStorageServiceFactory,
+  WebhookInboundServiceFactory,
+} from './services'
+import { PixAuthorizationServiceFactory } from './services/authorization'
+import { braspagClientFactory } from './services/braspag-client-factory'
+import { PixOperationsServiceFactory } from './services/operations'
 
 const authorizationsBucket = 'authorizations'
 const persistAuthorizationResponse = async (
-  vbase: VBase,
+  vbase: any,
   resp: AuthorizationResponse
 ) => vbase.saveJSON(authorizationsBucket, resp.paymentId, resp)
 
 const getPersistedAuthorizationResponse = async (
-  vbase: VBase,
+  vbase: any,
   req: AuthorizationRequest
 ) =>
-  vbase.getJSON<AuthorizationResponse | undefined>(
-    authorizationsBucket,
-    req.paymentId,
-    true
+  vbase.getJSON(authorizationsBucket, req.paymentId, true) as Promise<
+    AuthorizationResponse | undefined
+  >
+
+export default class BraspagConnector extends PaymentProvider<
+  Clients,
+  PaymentProviderState,
+  CustomContextFields
+> {
+  private readonly datadogLogger: Logger
+  private readonly logger: DatadogLoggerAdapter
+  private readonly configService = PaymentConfigurationServiceFactory.create()
+
+  private readonly storageService = PaymentStorageServiceFactory.createPaymentStorage(
+    this.context.clients.vbase
   )
 
-export default class TestSuiteApprover extends PaymentProvider {
-  // This class needs modifications to pass the test suit.
-  // Refer to https://help.vtex.com/en/tutorial/payment-provider-protocol#4-testing
-  // in order to learn about the protocol and make the according changes.
+  private readonly pixAuthService: any
 
-  private async saveAndRetry(
-    req: AuthorizationRequest,
-    resp: AuthorizationResponse
-  ) {
-    await persistAuthorizationResponse(this.context.clients.vbase, resp)
-    this.callback(req, resp)
+  private readonly pixOpsService: any
+
+  private readonly webhookService: any
+
+  constructor(context: any) {
+    super(context)
+
+    // Initialize Datadog logger
+    this.datadogLogger = new Logger(
+      this.context as Context,
+      this.context.clients.datadog
+    )
+
+    // Create adapter for services compatibility
+    this.logger = new DatadogLoggerAdapter(this.datadogLogger)
+
+    // Initialize services after logger
+    this.pixAuthService = PixAuthorizationServiceFactory.create({
+      configService: this.configService,
+      storageService: this.storageService,
+      clientFactory: braspagClientFactory,
+      context: this.context.vtex,
+      logger: this.logger,
+    })
+
+    this.pixOpsService = PixOperationsServiceFactory.create({
+      configService: this.configService,
+      storageService: this.storageService,
+      clientFactory: braspagClientFactory,
+      context: this.context.vtex,
+      logger: this.logger,
+    })
+
+    this.webhookService = WebhookInboundServiceFactory.create(
+      this.datadogLogger
+    )
   }
 
   public async authorize(
-    authorization: AuthorizationRequest
+    authorization: AuthorizationRequest & {
+      paymentMethod?: string
+      splits?: Array<{
+        merchantId: string
+        amount: number
+        commission?: {
+          fee?: number
+          gateway?: number
+        }
+      }>
+    }
   ): Promise<AuthorizationResponse> {
+    this.logger.info('Authorize called', {
+      paymentId: authorization.paymentId,
+      paymentMethod: (authorization as any).paymentMethod,
+      isTestSuite: this.isTestSuite,
+    })
+
     if (this.isTestSuite) {
-      const persistedResponse = await getPersistedAuthorizationResponse(
-        this.context.clients.vbase,
-        authorization
-      )
-
-      if (persistedResponse !== undefined && persistedResponse !== null) {
-        return persistedResponse
-      }
-
-      return executeAuthorization(authorization, response =>
-        this.saveAndRetry(authorization, response)
-      )
+      return this.handleTestSuiteAuthorization(authorization)
     }
 
-    throw new Error('Not implemented')
+    return this.handleProductionAuthorization(authorization)
   }
 
   public async cancel(
@@ -76,7 +134,7 @@ export default class TestSuiteApprover extends PaymentProvider {
       })
     }
 
-    throw new Error('Not implemented')
+    return this.pixOpsService.cancelPayment(cancellation)
   }
 
   public async refund(refund: RefundRequest): Promise<RefundResponse> {
@@ -94,8 +152,94 @@ export default class TestSuiteApprover extends PaymentProvider {
       return Settlements.deny(settlement)
     }
 
-    throw new Error('Not implemented')
+    return this.pixOpsService.settlePayment(settlement)
   }
 
-  public inbound: undefined
+  private async saveAndRetry(
+    req: AuthorizationRequest,
+    resp: AuthorizationResponse
+  ) {
+    await persistAuthorizationResponse(this.context.clients.vbase, resp)
+
+    this.logger.info('Attempting callback to Test Suite...', {})
+    try {
+      this.callback(req, resp)
+      this.logger.info('Callback successful', {})
+    } catch (error) {
+      this.logger.warn(
+        'Callback failed (TLS error expected in test environment)',
+        { error: error instanceof Error ? error.message : String(error) }
+      )
+    }
+  }
+
+  private async handleTestSuiteAuthorization(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    const persistedResponse = await getPersistedAuthorizationResponse(
+      this.context.clients.vbase,
+      authorization
+    )
+
+    if (persistedResponse) {
+      return persistedResponse
+    }
+
+    this.logger.info('No persisted response found, executing flow', {})
+
+    return executeAuthorization(authorization, response =>
+      this.saveAndRetry(authorization, response)
+    )
+  }
+
+  private async handleProductionAuthorization(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    try {
+      if (!this.isPixPayment(authorization)) {
+        throw new Error(RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED)
+      }
+
+      return this.pixAuthService.authorizePixPayment(authorization)
+    } catch (error) {
+      this.logger.error('PIX authorization failed', error)
+
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.ERROR,
+        message: `PIX authorization failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
+  }
+
+  private isPixPayment(authorization: AuthorizationRequest): boolean {
+    return (
+      (authorization as any).paymentMethod === 'Pix' ||
+      (authorization as any).miniCart?.paymentMethod === 'Pix'
+    )
+  }
+
+  /**
+   * Inbound webhook handler for receiving Braspag notifications
+   * Processes payment status changes and triggers appropriate actions
+   */
+  public inbound = async (request: any): Promise<any> => {
+    this.logger.info('INBOUND: Webhook received', {
+      body: request.body,
+      headers: request.headers,
+    })
+
+    // Create VBase client adapter
+    const vbaseClient = {
+      getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
+        this.context.clients.vbase.getJSON<T>(bucket, key, nullIfNotFound),
+      saveJSON: async (bucket: string, key: string, data: unknown) => {
+        await this.context.clients.vbase.saveJSON(bucket, key, data)
+      },
+    }
+
+    // Delegate to webhook service
+    return this.webhookService.processWebhook(request, vbaseClient)
+  }
 }

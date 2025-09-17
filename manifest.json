@@ -1,12 +1,12 @@
 {
-  "name": "payment-provider-example",
-  "vendor": "vtex",
-  "version": "1.2.0",
-  "title": "Payment Provider Example",
-  "description": "Reference app for Payment-Provider protocol implementers",
+  "name": "braspag-pix-connector",
+  "vendor": "marykay",
+  "version": "0.0.3",
+  "title": "Mary Kay Braspag PIX Split Connector",
+  "description": "Advanced PIX payment connector with split functionality for Mary Kay consultant commissions. Integrates with Braspag Split API to automatically distribute payments between consultants and marketplace based on customizable percentages.",
   "builders": {
     "paymentProvider": "1.x",
-    "node": "6.x",
+    "node": "7.x",
     "docs": "0.x"
   },
   "policies": [
@@ -25,10 +25,76 @@
         "host": "heimdall.vtexpayments.com.br",
         "path": "/api/payment-provider/callback/*"
       }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "api.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "apisandbox.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "auth.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "authsandbox.braspag.com.br"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "http-intake.logs.datadoghq.com",
+        "path": "/api/v2/logs"
+      }
     }
   ],
   "billingOptions": {
-    "type": "free"
+    "type": "free",
+    "private": true,
+    "availableCountries": [
+      "*"
+    ]
+  },
+  "settingsSchema": {
+    "title": "Configuration",
+    "type": "object",
+    "properties": {
+      "merchantId": {
+        "title": "[Braspag] MerchantId",
+        "type": "string"
+      },
+      "merchantKey": {
+        "title": "[Braspag] MerchantKey",
+        "type": "string"
+      },
+      "clientSecret": {
+        "title": "[Braspag] ClientSecret",
+        "type": "string"
+      },
+      "notifyTargetWorkspace": {
+        "title": "Notify target workspace",
+        "description": "When enabled, notifications from Braspag will be duplicated to the specified workspace",
+        "type": "string"
+      },
+      "appKey": {
+        "title": "VTEX App Key",
+        "type": "string"
+      },
+      "appToken": {
+        "title": "VTEX App Token",
+        "type": "string"
+      }
+    }
   },
   "$schema": "https://raw.githubusercontent.com/vtex/node-vtex-api/master/gen/manifest.schema"
 }
