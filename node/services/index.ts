@@ -1,7 +1,6 @@
 export { BraspagPixAuthorizationService } from './authorization'
 export { BraspagPixOperationsService } from './operations'
 export { NotificationResponse, NotificationService } from './notification'
-export { BraspagPaymentStatusValidator } from './payment-status'
 export { DefaultBraspagClientFactory } from './braspag-client-factory'
 export { BraspagNotificationHandler } from './braspag-notification-handler'
 export {
@@ -14,7 +13,6 @@ export {
   VBaseAuthorizationStorageService,
   PaymentStorageServiceFactory,
 } from './payment-storage'
-export { StandardResponseBuilderService } from './response-builder'
 export {
   WebhookInboundService,
   WebhookInboundServiceFactory,
