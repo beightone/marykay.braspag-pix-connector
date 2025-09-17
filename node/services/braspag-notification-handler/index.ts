@@ -84,7 +84,6 @@ export class BraspagNotificationHandler implements NotificationHandler {
 
       return storedPayment
     } catch (error) {
-
       this.logger.error('BRASPAG: Failed to retrieve stored payment', error, {
         paymentId,
       })
@@ -201,14 +200,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
 
       await this.forwardToStoreServices(notification, context)
 
-      // 2. Additional processing could be added here:
-      // - Trigger settlement
-      // - Send customer notifications
-      // - Update business metrics
-
       this.logger.info('BRASPAG: PIX payment processing completed', {
         paymentId: PaymentId,
         merchantOrderId: storedPayment.merchantOrderId,
+        splitNote: 'Split automatically processed by Braspag during payment',
       })
     } catch (error) {
       this.logger.error('BRASPAG: Failed to process paid PIX payment', error, {
