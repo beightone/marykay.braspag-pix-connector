@@ -8,7 +8,7 @@ import { PaymentConfigurationService } from '../payment-configuration'
 import { VBasePaymentStorageService } from '../payment-storage'
 import { BraspagClientFactory } from '../braspag-client-factory/types'
 import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
-import { MaryKayCustomData } from '../../adapters/braspag-pix-adapter'
+import { MaryKayCustomData } from '../../adapters/types'
 
 export interface PixAuthorizationService {
   authorizePixPayment(
