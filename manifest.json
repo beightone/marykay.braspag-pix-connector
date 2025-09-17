@@ -2,8 +2,8 @@
   "name": "braspag-pix-connector",
   "vendor": "marykay",
   "version": "0.0.3",
-  "title": "Braspag Pix Connector",
-  "description": "Connector for Braspag Split Pix",
+  "title": "Mary Kay Braspag PIX Split Connector",
+  "description": "Advanced PIX payment connector with split functionality for Mary Kay consultant commissions. Integrates with Braspag Split API to automatically distribute payments between consultants and marketplace based on customizable percentages.",
   "builders": {
     "paymentProvider": "1.x",
     "node": "7.x",
