@@ -61,7 +61,9 @@
   "billingOptions": {
     "type": "free",
     "private": true,
-    "availableCountries": ["*"]
+    "availableCountries": [
+      "*"
+    ]
   },
   "settingsSchema": {
     "title": "Configuration",

@@ -5,7 +5,6 @@ import {
   SplitPaymentEntry,
   Customer,
 } from '../clients/braspag/types'
-import { customData as customDataMocked } from '../__mock__/customData'
 import {
   BraspagPixAdapterConfig,
   AuthorizationWithSplits,
@@ -223,9 +222,8 @@ export class BraspagPixRequestBuilder {
   }
 
   private createMaryKaySplitPayments(totalAmount: number): SplitPaymentEntry[] {
-    const splitData = this.extractSplitSimulation(
-      customDataMocked as MaryKayCustomData
-    )
+    const customData = (this.authorization as any).miniCart?.customData as MaryKayCustomData | undefined
+    const splitData = this.extractSplitSimulation(customData)
 
     const consultantPercentage =
       splitData.splitProfitPct ??
@@ -284,6 +282,9 @@ export class BraspagPixAdapterFactory {
     if (!qrCodeString && !qrCodeBase64) {
       return undefined
     }
+
+    console.log('qrCodeString', qrCodeString)
+    console.log('qrCodeBase64', qrCodeBase64)
 
     const payload = {
       ...(qrCodeString && { code: qrCodeString }),

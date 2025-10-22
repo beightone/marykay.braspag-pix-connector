@@ -24,11 +24,11 @@ export class BraspagClient extends ExternalClient {
     context: IOContext & { settings?: BraspagCredentials },
     options?: InstanceOptions
   ) {
-    const credentials: BraspagCredentials = context.settings || {
-      merchantId: '85c49198-837a-423c-89d0-9087b5d16d49',
-      clientSecret: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-      merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
+    if (!context.settings?.merchantId || !context.settings?.clientSecret || !context.settings?.merchantKey) {
+      throw new Error('Missing required Braspag credentials in settings. Please configure merchantId, merchantKey and clientSecret.')
     }
+
+    const credentials: BraspagCredentials = context.settings
 
     const isProduction = context.workspace === 'master'
     const config = BraspagConfigBuilder.build(credentials, isProduction)
@@ -69,15 +69,14 @@ export class BraspagClient extends ExternalClient {
 
     try {
       await this.authenticator.getAccessToken()
-      // const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
         '/v2/sales/',
         payload,
         {
           headers: {
-            MerchantId: '85C49198-837A-423C-89D0-9087B5D16D49',
-            MerchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
+            MerchantId: this.config.credentials.merchantId,
+            MerchantKey: this.config.credentials.merchantKey,
           },
         }
       )
