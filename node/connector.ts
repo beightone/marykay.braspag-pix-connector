@@ -22,7 +22,7 @@ import { executeAuthorization } from './flow'
 import { Clients } from './clients'
 import { Logger } from './tools/datadog/datadog'
 import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
-import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
+import { ERROR_CODES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
@@ -31,6 +31,7 @@ import {
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { braspagClientFactory } from './services/braspag-client-factory'
 import { PixOperationsServiceFactory } from './services/operations'
+import { AuthorizationRequestWithSplits } from './types/connector'
 
 const authorizationsBucket = 'authorizations'
 const persistAuthorizationResponse = async (
@@ -77,6 +78,9 @@ export default class BraspagConnector extends PaymentProvider<
     // Create adapter for services compatibility
     this.logger = new DatadogLoggerAdapter(this.datadogLogger)
 
+    // Set logger on braspag client factory
+    braspagClientFactory.setLogger(this.logger)
+
     // Initialize services after logger
     this.pixAuthService = PixAuthorizationServiceFactory.create({
       configService: this.configService,
@@ -100,29 +104,37 @@ export default class BraspagConnector extends PaymentProvider<
   }
 
   public async authorize(
-    authorization: AuthorizationRequest & {
-      paymentMethod?: string
-      splits?: Array<{
-        merchantId: string
-        amount: number
-        commission?: {
-          fee?: number
-          gateway?: number
-        }
-      }>
-    }
+    authorization: AuthorizationRequestWithSplits
   ): Promise<AuthorizationResponse> {
-    this.logger.info('Authorize called', {
-      paymentId: authorization.paymentId,
-      paymentMethod: (authorization as any).paymentMethod,
-      isTestSuite: this.isTestSuite,
-    })
-
     if (this.isTestSuite) {
-      return this.handleTestSuiteAuthorization(authorization)
+      const persistedResponse = await getPersistedAuthorizationResponse(
+        this.context.clients.vbase,
+        authorization
+      )
+
+      if (persistedResponse) {
+        return persistedResponse
+      }
+
+      this.logger.info('No persisted response found, executing flow', {})
+
+      return executeAuthorization(authorization, response =>
+        this.saveAndRetry(authorization, response)
+      )
     }
 
-    return this.handleProductionAuthorization(authorization)
+    try {
+      return await this.pixAuthService.authorizePixPayment(authorization)
+    } catch (error) {
+      this.logger.error('PIX authorization failed', error)
+
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.ERROR,
+        message: `PIX authorization failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
   }
 
   public async cancel(
@@ -171,53 +183,6 @@ export default class BraspagConnector extends PaymentProvider<
         { error: error instanceof Error ? error.message : String(error) }
       )
     }
-  }
-
-  private async handleTestSuiteAuthorization(
-    authorization: AuthorizationRequest
-  ): Promise<AuthorizationResponse> {
-    const persistedResponse = await getPersistedAuthorizationResponse(
-      this.context.clients.vbase,
-      authorization
-    )
-
-    if (persistedResponse) {
-      return persistedResponse
-    }
-
-    this.logger.info('No persisted response found, executing flow', {})
-
-    return executeAuthorization(authorization, response =>
-      this.saveAndRetry(authorization, response)
-    )
-  }
-
-  private async handleProductionAuthorization(
-    authorization: AuthorizationRequest
-  ): Promise<AuthorizationResponse> {
-    try {
-      if (!this.isPixPayment(authorization)) {
-        throw new Error(RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED)
-      }
-
-      return this.pixAuthService.authorizePixPayment(authorization)
-    } catch (error) {
-      this.logger.error('PIX authorization failed', error)
-
-      return Authorizations.deny(authorization, {
-        code: ERROR_CODES.ERROR,
-        message: `PIX authorization failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-      })
-    }
-  }
-
-  private isPixPayment(authorization: AuthorizationRequest): boolean {
-    return (
-      (authorization as any).paymentMethod === 'Pix' ||
-      (authorization as any).miniCart?.paymentMethod === 'Pix'
-    )
   }
 
   /**
