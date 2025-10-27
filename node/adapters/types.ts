@@ -2,11 +2,7 @@
  * Configuration options for Braspag PIX adapter
  */
 export interface BraspagPixAdapterConfig {
-  merchantId: string
-  monitfyConsultantId?: string
   notificationUrl?: string
-  splitProfitPct?: number
-  splitDiscountPct?: number
 }
 
 /**
