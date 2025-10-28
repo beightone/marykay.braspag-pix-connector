@@ -32,9 +32,31 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
       const braspagClient = await this.createBraspagClient()
 
-      const paymentStatus = await braspagClient.queryPixPaymentStatus(
-        storedPayment.pixPaymentId
-      )
+      let paymentStatus: any
+
+      try {
+        paymentStatus = await braspagClient.queryPixPaymentStatus(
+          storedPayment.pixPaymentId
+        )
+      } catch (error) {
+        if (error?.message?.includes('not found')) {
+          this.deps.logger.warn(
+            'Payment not found in Braspag, approving cancellation',
+            {
+              paymentId: cancellation.paymentId,
+              pixPaymentId: storedPayment.pixPaymentId,
+            }
+          )
+
+          return Cancellations.approve(cancellation, {
+            cancellationId: storedPayment.pixPaymentId,
+            code: 'NOT_FOUND',
+            message: 'PIX payment not found in Braspag - cancellation approved',
+          })
+        }
+
+        throw error
+      }
 
       const { Payment: payment } = paymentStatus
       const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
@@ -118,7 +140,27 @@ export class BraspagPixOperationsService implements PixOperationsService {
       })
 
       const braspagClient = await this.createBraspagClient()
-      const paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
+
+      let paymentStatus: any
+
+      try {
+        paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
+      } catch (error) {
+        if (error?.message?.includes('not found')) {
+          this.deps.logger.warn('Payment not found in Braspag for settlement', {
+            paymentId,
+            tid,
+          })
+
+          return Settlements.deny(settlement, {
+            code: 'NOT_FOUND',
+            message: 'PIX payment not found in Braspag',
+          })
+        }
+
+        throw error
+      }
+
       const { Payment: payment } = paymentStatus
 
       this.deps.logger.info('VTEX_SETTLEMENT: Braspag payment status', {

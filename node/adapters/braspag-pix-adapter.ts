@@ -298,8 +298,7 @@ export class BraspagPixAdapterFactory {
     }
 
     return {
-      appName:
-        process.env.PAYMENT_APP_NAME ?? 'marykay.braspag-pix-authorization',
+      appName: 'marykay.braspag-pix-authorization',
       payload: JSON.stringify(payload),
     }
   }

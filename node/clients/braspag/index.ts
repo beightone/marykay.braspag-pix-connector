@@ -86,9 +86,8 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error(`BRASPAG: ${operation} failed`, {
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
         merchantOrderId: payload.MerchantOrderId,
-        error: error instanceof Error ? error.message : 'Unknown error',
       })
 
       throw error
@@ -118,9 +117,19 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error(`BRASPAG: ${operation} failed`, {
+      const statusCode = error?.response?.status
+
+      if (statusCode === 404) {
+        this.logger.warn(`BRASPAG: ${operation} - Payment not found`, {
+          paymentId,
+          statusCode,
+        })
+        throw new Error(`Payment ${paymentId} not found in Braspag`)
+      }
+
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
         paymentId,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        statusCode,
       })
       throw error
     }
