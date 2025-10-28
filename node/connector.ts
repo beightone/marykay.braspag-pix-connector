@@ -195,11 +195,14 @@ export default class BraspagConnector extends PaymentProvider<
   private async handleProductionAuthorization(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    try {
-      if (!this.isPixPayment(authorization)) {
-        throw new Error(RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED)
-      }
+    if (!this.isPixPayment(authorization)) {
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.DENIED,
+        message: RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED,
+      })
+    }
 
+    try {
       return this.pixAuthService.authorizePixPayment(authorization)
     } catch (error) {
       this.logger.error('PIX authorization failed', error)

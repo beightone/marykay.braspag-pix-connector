@@ -16,11 +16,11 @@ import {
 import {
   PixAuthorizationService,
   PixAuthorizationServiceDependencies,
-  ExtendedAuthorizationRequest,
   BraspagPayment,
   PixAuthorizationServiceFactoryParams,
 } from './types'
 import { customData as mockCustomData } from '../../__mock__/customData'
+import { getStaticCredentials } from '../../clients/braspag/config'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -28,11 +28,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
   public async authorizePixPayment(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    const merchantSettings = this.getMerchantSettings(authorization)
-
     const braspagClient = this.deps.clientFactory.createClient(
-      this.deps.context,
-      merchantSettings
+      this.deps.context
     )
 
     const notificationUrl = this.deps.configService.buildNotificationUrl(
@@ -59,8 +56,11 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
 
     const consultantData = JSON.parse(retailersApp.fields.consultant)
 
+    const isProduction = this.deps.context.workspace === 'master'
+    const credentials = getStaticCredentials(isProduction)
+
     const pixRequest = createBraspagPixSaleRequest(authorization, {
-      merchantId: merchantSettings.merchantId,
+      merchantId: credentials.merchantId,
       notificationUrl,
       monitfyConsultantId: consultantData.monitfyConsultantId,
       splitProfitPct,
@@ -113,28 +113,6 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     })
 
     return authResponse
-  }
-
-  private getMerchantSettings(authorization: AuthorizationRequest) {
-    const extendedAuth = authorization as ExtendedAuthorizationRequest
-
-    const merchantSettingsArray = Object.entries(
-      extendedAuth.merchantSettings ?? {}
-    ).map(([name, value]) => ({
-      name,
-      value: String(value),
-    }))
-
-    const authData = {
-      merchantSettings: merchantSettingsArray,
-      paymentId: authorization.paymentId,
-      paymentMethod: extendedAuth.paymentMethod,
-      miniCart: {
-        paymentMethod: extendedAuth.miniCart?.paymentMethod,
-      },
-    }
-
-    return this.deps.configService.getMerchantSettings(authData)
   }
 
   private async storePaymentData(

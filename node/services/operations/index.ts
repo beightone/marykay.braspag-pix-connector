@@ -30,9 +30,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const braspagClient = await this.createBraspagClient(
-        cancellation.paymentId
-      )
+      const braspagClient = await this.createBraspagClient()
 
       const paymentStatus = await braspagClient.queryPixPaymentStatus(
         storedPayment.pixPaymentId
@@ -119,7 +117,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         status: storedPayment.status,
       })
 
-      const braspagClient = await this.createBraspagClient(paymentId)
+      const braspagClient = await this.createBraspagClient()
       const paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
       const { Payment: payment } = paymentStatus
 
@@ -188,18 +186,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
     }
   }
 
-  private async createBraspagClient(paymentId: string) {
-    const merchantSettings = this.deps.configService.getMerchantSettings({
-      merchantSettings: [],
-      paymentId,
-      paymentMethod: 'Pix',
-      miniCart: { paymentMethod: 'Pix' },
-    })
-
-    return this.deps.clientFactory.createClient(
-      this.deps.context,
-      merchantSettings
-    )
+  private async createBraspagClient() {
+    return this.deps.clientFactory.createClient(this.deps.context)
   }
 }
 
