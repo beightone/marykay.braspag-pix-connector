@@ -4,6 +4,7 @@ import { BraspagClient } from './braspag'
 // import { GiftcardsIntegrationClient } from './giftcard-integration'
 // import { StoreServicesClient } from './store-services'
 import { Datadog } from './datadog'
+import { StoreServicesClient } from './store-services'
 
 export class Clients extends IOClients {
   public get braspag() {
@@ -12,6 +13,10 @@ export class Clients extends IOClients {
 
   public get datadog() {
     return this.getOrSet('datadog', Datadog)
+  }
+
+  public get storeServices() {
+    return this.getOrSet('storeServices', StoreServicesClient)
   }
 }
 
