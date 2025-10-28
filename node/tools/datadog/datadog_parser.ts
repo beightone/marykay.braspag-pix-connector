@@ -12,7 +12,7 @@ export function datadogLog(params: {
   const account = ctx.vtex?.account ?? 'unknown'
   const operationId = ctx.vtex?.operationId ?? 'unknown'
   const appId = process.env.VTEX_APP_ID ?? 'unknown-app'
-  
+
   return {
     trace_id: options?.trackerId ?? routeId,
     source: 'vtex',

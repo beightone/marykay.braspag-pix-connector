@@ -5,8 +5,6 @@ export class DatadogLoggerAdapter implements DatadogCompatibleLogger {
   constructor(private datadogLogger: DatadogLogger) {}
 
   public info(message: string, metadata?: Record<string, unknown>): void {
-    // eslint-disable-next-line no-console
-    console.info('[ADAPTER_DEBUG] info() called:', { message })
     this.datadogLogger.info(message, metadata ?? {})
   }
 

@@ -7,7 +7,7 @@ import {
 import { PaymentProviderState } from '@vtex/payment-provider'
 
 import { Clients } from '../clients'
-import { Logger } from '../tools/datadog/datadog'
+import { DatadogCompatibleLogger } from '../tools/datadog/logger.types'
 
 declare global {
   type Context = ServiceContext<Clients, State, CustomContextFields>
@@ -16,11 +16,11 @@ declare global {
     Clients,
     PaymentProviderState
   > & {
-    logger: Logger
+    logger: DatadogCompatibleLogger
   }
 
   type CustomContextFields = ParamsContext & {
-    logger: Logger
+    logger: DatadogCompatibleLogger
   }
 
   type State = RecorderState & {

@@ -12,8 +12,7 @@ export class Logger {
     this.datadog = datadog
 
     // Enable Datadog based on proper conditions
-    this.enabled = true
-    // ctx.vtex?.workspace !== 'master'
+    this.enabled = ctx.vtex?.workspace === 'master'
   }
 
   private async catchError(data: unknown) {
