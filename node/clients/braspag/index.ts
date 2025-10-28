@@ -10,7 +10,7 @@ import {
 import {
   BraspagConfig,
   BraspagConfigBuilder,
-  getStaticCredentials,
+  BraspagCredentials,
 } from './config'
 import { BraspagAuthenticator } from './authenticator'
 import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
@@ -22,9 +22,12 @@ export class BraspagClient extends ExternalClient {
   private authenticator: BraspagAuthenticator
   private logger: DatadogLoggerAdapter
 
-  constructor(context: IOContext, options?: InstanceOptions) {
+  constructor(
+    context: IOContext & { settings?: BraspagCredentials },
+    options?: InstanceOptions
+  ) {
     const isProduction = context.workspace === 'master'
-    const credentials = getStaticCredentials(isProduction)
+    const credentials = context.settings
     const config = BraspagConfigBuilder.build(credentials, isProduction)
 
     super(config.environment.apiUrl, context, {

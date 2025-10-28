@@ -26,7 +26,8 @@ import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
-  WebhookInboundServiceFactory,
+  NotificationService,
+  BraspagNotificationHandler,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { braspagClientFactory } from './services/braspag-client-factory'
@@ -63,7 +64,7 @@ export default class BraspagConnector extends PaymentProvider<
 
   private readonly pixOpsService: any
 
-  private readonly webhookService: any
+  private readonly notificationService: NotificationService
 
   constructor(context: any) {
     super(context)
@@ -94,8 +95,9 @@ export default class BraspagConnector extends PaymentProvider<
       logger: this.logger,
     })
 
-    this.webhookService = WebhookInboundServiceFactory.create(
-      this.datadogLogger
+    this.notificationService = new NotificationService(this.logger)
+    this.notificationService.addHandler(
+      new BraspagNotificationHandler(this.logger)
     )
   }
 
@@ -217,10 +219,27 @@ export default class BraspagConnector extends PaymentProvider<
   }
 
   private isPixPayment(authorization: AuthorizationRequest): boolean {
-    return (
-      (authorization as any).paymentMethod === 'Pix' ||
-      (authorization as any).miniCart?.paymentMethod === 'Pix'
-    )
+    type MaybePixMethod = {
+      paymentMethod?: string
+      miniCart?: { paymentMethod?: string }
+    }
+
+    const obj: unknown = authorization as unknown
+
+    if (
+      obj !== null &&
+      typeof obj === 'object' &&
+      ('paymentMethod' in obj || 'miniCart' in obj)
+    ) {
+      const candidate = obj as MaybePixMethod
+
+      return (
+        candidate.paymentMethod === 'Pix' ||
+        candidate.miniCart?.paymentMethod === 'Pix'
+      )
+    }
+
+    return false
   }
 
   /**
@@ -233,7 +252,6 @@ export default class BraspagConnector extends PaymentProvider<
       headers: request.headers,
     })
 
-    // Create VBase client adapter
     const vbaseClient = {
       getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
         this.context.clients.vbase.getJSON<T>(bucket, key, nullIfNotFound),
@@ -242,7 +260,18 @@ export default class BraspagConnector extends PaymentProvider<
       },
     }
 
-    // Delegate to webhook service
-    return this.webhookService.processWebhook(request, vbaseClient)
+    const notificationContext = {
+      status: 200,
+      body: request.body,
+      clients: {
+        vbase: vbaseClient,
+      },
+      request: { body: request.body },
+    }
+
+    return this.notificationService.processNotification(
+      request.body,
+      notificationContext as any
+    )
   }
 }

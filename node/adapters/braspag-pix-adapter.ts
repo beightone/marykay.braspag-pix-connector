@@ -5,7 +5,6 @@ import {
   SplitPaymentEntry,
   Customer,
 } from '../clients/braspag/types'
-import { customData as customDataMocked } from '../__mock__/customData'
 import {
   BraspagPixAdapterConfig,
   AuthorizationWithSplits,
@@ -116,6 +115,7 @@ export class BraspagPixRequestBuilder {
       Type: 'Pix',
       Amount: amount,
       Provider: 'Braspag',
+      NotificationUrl: config.notificationUrl,
       ...(splitPayments.length > 0 && { SplitPayments: splitPayments }),
     }
 
@@ -210,7 +210,7 @@ export class BraspagPixRequestBuilder {
    * Create split payments configuration
    */
   private createSplitPayments(
-    _config: BraspagPixAdapterConfig,
+    config: BraspagPixAdapterConfig,
     totalAmount: number
   ): SplitPaymentEntry[] {
     if (this.authorization.splits && this.authorization.splits.length > 0) {
@@ -219,15 +219,19 @@ export class BraspagPixRequestBuilder {
       )
     }
 
-    return this.createMaryKaySplitPayments(totalAmount)
+    return this.createMaryKaySplitPayments(totalAmount, config)
   }
 
-  private createMaryKaySplitPayments(totalAmount: number): SplitPaymentEntry[] {
+  private createMaryKaySplitPayments(
+    totalAmount: number,
+    config: BraspagPixAdapterConfig
+  ): SplitPaymentEntry[] {
     const splitData = this.extractSplitSimulation(
-      customDataMocked as MaryKayCustomData
+      (this.authorization.customData as MaryKayCustomData) || undefined
     )
 
     const consultantPercentage =
+      config.splitProfitPct ??
       splitData.splitProfitPct ??
       MARY_KAY_SPLIT_CONFIG.DEFAULT_CONSULTANT_PERCENTAGE
 
@@ -286,12 +290,16 @@ export class BraspagPixAdapterFactory {
     }
 
     const payload = {
-      ...(qrCodeString && { code: qrCodeString }),
-      ...(qrCodeBase64 && { qrCodeBase64Image: qrCodeBase64 }),
+      ...(qrCodeString && { code: qrCodeString, qrCodeString }),
+      ...(qrCodeBase64 && {
+        qrCodeBase64Image: qrCodeBase64,
+        qrCodeBase64,
+      }),
     }
 
     return {
-      appName: 'marykayhomolog.braspag-pix-authorization',
+      appName:
+        process.env.PAYMENT_APP_NAME ?? 'marykay.braspag-pix-authorization',
       payload: JSON.stringify(payload),
     }
   }
