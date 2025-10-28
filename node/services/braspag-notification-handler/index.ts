@@ -80,7 +80,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     try {
       const storedPayment = await context.clients.vbase.getJSON<
         StoredBraspagPayment
-      >('braspag-payments', paymentId, true)
+      >('payments', paymentId, true)
 
       return storedPayment
     } catch (error) {
@@ -170,11 +170,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
       ...(amount !== undefined && { amount }),
     }
 
-    await context.clients.vbase.saveJSON(
-      'braspag-payments',
-      paymentId,
-      updatedPayment
-    )
+    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
 
     // Process split payment and callback for PAID status
     if (status === BRASPAG_STATUS.PAID) {
@@ -270,11 +266,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
       lastUpdated: new Date().toISOString(),
     }
 
-    await context.clients.vbase.saveJSON(
-      'braspag-payments',
-      paymentId,
-      updatedPayment
-    )
+    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
   }
 
   private async handleChargeback(params: {
@@ -296,10 +288,6 @@ export class BraspagNotificationHandler implements NotificationHandler {
       lastUpdated: new Date().toISOString(),
     }
 
-    await context.clients.vbase.saveJSON(
-      'braspag-payments',
-      paymentId,
-      updatedPayment
-    )
+    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
   }
 }

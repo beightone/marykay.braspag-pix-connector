@@ -10,31 +10,25 @@ import {
 import {
   BraspagConfig,
   BraspagConfigBuilder,
-  BraspagCredentials,
+  getStaticCredentials,
 } from './config'
 import { BraspagAuthenticator } from './authenticator'
-import { Logger, VtexLogger } from './logger'
+import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
+import { Logger as DatadogLogger } from '../../tools/datadog/datadog'
+import { Datadog } from '../datadog'
 
 export class BraspagClient extends ExternalClient {
   private config: BraspagConfig
   private authenticator: BraspagAuthenticator
-  private logger: Logger
+  private logger: DatadogLoggerAdapter
 
-  constructor(
-    context: IOContext & { settings?: BraspagCredentials },
-    options?: InstanceOptions
-  ) {
-    const credentials: BraspagCredentials = context.settings || {
-      merchantId: '85c49198-837a-423c-89d0-9087b5d16d49',
-      clientSecret: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-      merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-    }
-
+  constructor(context: IOContext, options?: InstanceOptions) {
     const isProduction = context.workspace === 'master'
+    const credentials = getStaticCredentials(isProduction)
     const config = BraspagConfigBuilder.build(credentials, isProduction)
 
     super(config.environment.apiUrl, context, {
-      timeout: 30000, // TODO verificar tempo limite adequado com a braspag
+      timeout: 30000,
       ...options,
       headers: {
         ...options?.headers,
@@ -42,7 +36,11 @@ export class BraspagClient extends ExternalClient {
     })
 
     this.config = config
-    this.logger = new VtexLogger((context as any).logger)
+
+    const datadogClient = new Datadog(context, options)
+    const datadogLogger = new DatadogLogger(context as any, datadogClient)
+
+    this.logger = new DatadogLoggerAdapter(datadogLogger)
     this.authenticator = new BraspagAuthenticator(
       this.config,
       this.http,
@@ -69,17 +67,12 @@ export class BraspagClient extends ExternalClient {
 
     try {
       await this.authenticator.getAccessToken()
-      // const headers = this.authenticator.getAuthHeaders()
+      const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
         '/v2/sales/',
         payload,
-        {
-          headers: {
-            MerchantId: '85C49198-837A-423C-89D0-9087B5D16D49',
-            MerchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-          },
-        }
+        { headers }
       )
 
       this.logger.info(`BRASPAG: ${operation} successful`, {

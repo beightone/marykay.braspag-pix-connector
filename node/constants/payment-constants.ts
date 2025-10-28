@@ -32,7 +32,7 @@ export const BRASPAG_STATUS = {
 // VBase bucket names
 export const VBASE_BUCKETS = {
   AUTHORIZATIONS: 'authorizations',
-  BRASPAG_PAYMENTS: 'braspag-payments',
+  BRASPAG_PAYMENTS: 'payments',
 } as const
 
 // Payment types
