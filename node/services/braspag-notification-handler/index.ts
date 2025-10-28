@@ -5,7 +5,10 @@ import {
 } from '../../types/braspag-notifications'
 import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { NotificationHandler, NotificationContext } from '../notification/types'
-import { BRASPAG_STATUS } from '../../constants/payment-constants'
+import {
+  BRASPAG_STATUS,
+  VBASE_BUCKETS,
+} from '../../constants/payment-constants'
 
 export class BraspagNotificationHandler implements NotificationHandler {
   constructor(private logger: DatadogLoggerAdapter) {}
@@ -80,7 +83,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     try {
       const storedPayment = await context.clients.vbase.getJSON<
         StoredBraspagPayment
-      >('payments', paymentId, true)
+      >(VBASE_BUCKETS.BRASPAG_PAYMENTS, paymentId, true)
 
       return storedPayment
     } catch (error) {
@@ -170,7 +173,11 @@ export class BraspagNotificationHandler implements NotificationHandler {
       ...(amount !== undefined && { amount }),
     }
 
-    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
+    await context.clients.vbase.saveJSON(
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
+      paymentId,
+      updatedPayment
+    )
 
     // Process split payment and callback for PAID status
     if (status === BRASPAG_STATUS.PAID) {
@@ -266,7 +273,11 @@ export class BraspagNotificationHandler implements NotificationHandler {
       lastUpdated: new Date().toISOString(),
     }
 
-    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
+    await context.clients.vbase.saveJSON(
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
+      paymentId,
+      updatedPayment
+    )
   }
 
   private async handleChargeback(params: {
@@ -288,6 +299,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
       lastUpdated: new Date().toISOString(),
     }
 
-    await context.clients.vbase.saveJSON('payments', paymentId, updatedPayment)
+    await context.clients.vbase.saveJSON(
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
+      paymentId,
+      updatedPayment
+    )
   }
 }

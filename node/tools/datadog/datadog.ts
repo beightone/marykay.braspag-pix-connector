@@ -11,7 +11,6 @@ export class Logger {
     this.ctx = ctx
     this.datadog = datadog
 
-    // Enable Datadog based on proper conditions
     this.enabled = ctx.vtex?.workspace === 'master'
   }
 
@@ -19,8 +18,7 @@ export class Logger {
     try {
       await this.datadog.save(data)
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.info('DATADOG_ERROR', err)
+      // ignore
     }
   }
 
@@ -70,10 +68,10 @@ export class Logger {
   }
 
   private local = (title: string, content: unknown, type: LogType) => {
-    const color = type === 'ERROR' ? '31' : '36'
+    const color = type === 'ERROR' ? '31' : type === 'WARN' ? '33' : '36'
 
     // eslint-disable-next-line no-console
-    console.info(`\x1b[${color}m`, title, content)
+    console.info(`\x1b[${color}m[LOCAL_${type}] ${title}\x1b[0m`, content)
   }
 
   public isEnabled = () => {
