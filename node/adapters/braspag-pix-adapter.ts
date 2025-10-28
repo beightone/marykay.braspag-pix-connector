@@ -291,7 +291,7 @@ export class BraspagPixAdapterFactory {
     }
 
     return {
-      appName: 'vtex-payment-app',
+      appName: 'marykayhomolog.braspag-pix-authorization',
       payload: JSON.stringify(payload),
     }
   }
