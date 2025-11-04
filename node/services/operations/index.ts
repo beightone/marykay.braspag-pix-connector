@@ -30,7 +30,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const braspagClient = await this.createBraspagClient()
+      const merchantSettings = this.getMerchantSettings(cancellation)
+      const braspagClient = this.deps.clientFactory.createClient(
+        this.deps.context,
+        merchantSettings
+      )
 
       let paymentStatus: any
 
@@ -139,7 +143,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         status: storedPayment.status,
       })
 
-      const braspagClient = await this.createBraspagClient()
+      const merchantSettings = this.getMerchantSettings(settlement)
+      const braspagClient = this.deps.clientFactory.createClient(
+        this.deps.context,
+        merchantSettings
+      )
 
       let paymentStatus: any
 
@@ -227,13 +235,27 @@ export class BraspagPixOperationsService implements PixOperationsService {
     }
   }
 
-  private async createBraspagClient() {
-    const merchantSettings = this.deps.configService.getMerchantSettingsFromEnv()
+  private getMerchantSettings(
+    request: CancellationRequest | SettlementRequest
+  ) {
+    const extended = (request as unknown) as {
+      merchantSettings?: Array<{ name: string; value: string }>
+    }
 
-    return this.deps.clientFactory.createClient(
-      this.deps.context,
-      merchantSettings
-    )
+    const authData = {
+      merchantSettings: extended.merchantSettings,
+      paymentId: request.paymentId,
+    }
+
+    const settings = this.deps.configService.getMerchantSettings(authData)
+
+    this.deps.logger.info('Merchant settings extracted for operation', {
+      merchantId: settings.merchantId,
+      hasClientSecret: !!settings.clientSecret,
+      hasMerchantKey: !!settings.merchantKey,
+    })
+
+    return settings
   }
 }
 

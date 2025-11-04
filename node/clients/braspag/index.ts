@@ -62,14 +62,12 @@ export class BraspagClient extends ExternalClient {
   ): Promise<CreatePixSaleResponse> {
     const operation = 'CREATE_PIX_SALE'
 
-    this.logger.info(`BRASPAG: Starting ${operation}`, {
-      merchantOrderId: payload.MerchantOrderId,
-      amount: payload.Payment?.Amount,
-      splitPaymentsCount: payload.Payment?.SplitPayments?.length ?? 0,
-    })
+    this.logger.info(`BRASPAG: Starting ${operation}`, { payload })
+
+    console.dir(payload, { depth: null })
 
     try {
-      await this.authenticator.getAccessToken()
+      // await this.authenticator.getAccessToken()
       const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
@@ -102,7 +100,7 @@ export class BraspagClient extends ExternalClient {
     this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
 
     try {
-      await this.authenticator.getAccessToken()
+      // await this.authenticator.getAccessToken()
       const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.get<QueryPixStatusResponse>(

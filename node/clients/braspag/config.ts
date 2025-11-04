@@ -34,7 +34,7 @@ export class BraspagConfigBuilder {
 
     return {
       credentials,
-      environment: isProduction ? this.PRODUCTION_ENV : this.SANDBOX_ENV,
+      environment: !isProduction ? this.PRODUCTION_ENV : this.SANDBOX_ENV,
       isProduction,
     }
   }
@@ -55,26 +55,3 @@ export class BraspagConfigBuilder {
     }
   }
 }
-
-export const BRASPAG_STATIC_CREDENTIALS: {
-  production: BraspagCredentials
-  sandbox: BraspagCredentials
-} = {
-  production: {
-    merchantId: '85c49198-837a-423c-89d0-9087b5d16d49',
-    clientSecret: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-    merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-  },
-  sandbox: {
-    merchantId: '85c49198-837a-423c-89d0-9087b5d16d49',
-    clientSecret: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-    merchantKey: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-  },
-}
-
-export const getStaticCredentials = (
-  isProduction: boolean
-): BraspagCredentials =>
-  isProduction
-    ? BRASPAG_STATIC_CREDENTIALS.production
-    : BRASPAG_STATIC_CREDENTIALS.sandbox

@@ -85,6 +85,7 @@ export default class BraspagConnector extends PaymentProvider<
       clientFactory: braspagClientFactory,
       context: this.context.vtex,
       logger: this.logger,
+      ordersClient: this.context.clients.orders,
     })
 
     this.pixOpsService = PixOperationsServiceFactory.create({
@@ -114,12 +115,7 @@ export default class BraspagConnector extends PaymentProvider<
       }>
     }
   ): Promise<AuthorizationResponse> {
-    this.logger.info('Authorize called', {
-      paymentId: authorization.paymentId,
-      paymentMethod: (authorization as any).paymentMethod,
-      isTestSuite: this.isTestSuite,
-    })
-
+    console.dir({where: 'connector.authorize', authorization}, { depth: null })
     if (this.isTestSuite) {
       return this.handleTestSuiteAuthorization(authorization)
     }
@@ -135,6 +131,8 @@ export default class BraspagConnector extends PaymentProvider<
         cancellationId: randomString(),
       })
     }
+
+    console.dir({where: 'connector.cancel', cancellation}, { depth: null })
 
     return this.pixOpsService.cancelPayment(cancellation)
   }

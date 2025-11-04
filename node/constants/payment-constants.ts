@@ -40,13 +40,6 @@ export const PAYMENT_TYPES = {
   PIX: 'pix',
 } as const
 
-// Default merchant credentials (fallback)
-export const DEFAULT_MERCHANT_CONFIG = {
-  MERCHANT_ID: '85c49198-837a-423c-89d0-9087b5d16d49',
-  CLIENT_SECRET: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-  MERCHANT_KEY: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
-} as const
-
 // Error codes
 export const ERROR_CODES = {
   PAID: 'PAID',

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@vtex/clients": "^2.21.0",
     "@vtex/payment-provider": "^1.0.0-beta",
     "axios": "^0.21.1",
     "co-body": "^6.0.0",
@@ -14,6 +15,7 @@
     "@vtex/api": "^7.0.0",
     "@vtex/test-tools": "^1.0.0",
     "@vtex/tsconfig": "^0.6.0",
+    "marykay.braspag-pix-connector": "https://pixconnector--marykayhomolog.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@1.0.0+build1762192662/public/_types/react",
     "typescript": "5.5.3"
   },
   "scripts": {

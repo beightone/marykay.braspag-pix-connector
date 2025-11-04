@@ -134,9 +134,9 @@ export class BraspagAuthenticator {
   }
 
   public getAuthHeaders(): Record<string, string> {
-    if (!this.accessToken) {
-      throw new Error('No valid access token available')
-    }
+    // if (!this.accessToken) {
+    //   throw new Error('No valid access token available')
+    // }
 
     return {
       MerchantId: this.config.credentials.merchantId,

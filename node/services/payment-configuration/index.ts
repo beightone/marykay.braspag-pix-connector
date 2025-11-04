@@ -3,7 +3,6 @@
  * Handles merchant settings retrieval and validation
  */
 
-import { DEFAULT_MERCHANT_CONFIG } from '../../constants/payment-constants'
 import {
   MerchantSettings,
   PaymentAuthorizationData,
@@ -36,16 +35,13 @@ export class PaymentConfigurationService
    * Used for cancel() and settle() operations where authorization data is not available
    */
   public getMerchantSettingsFromEnv(): MerchantSettings {
-    return {
-      merchantId:
-        process.env.BRASPAG_MERCHANT_ID ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_ID,
-      clientSecret:
-        process.env.BRASPAG_CLIENT_SECRET ??
-        DEFAULT_MERCHANT_CONFIG.CLIENT_SECRET,
-      merchantKey:
-        process.env.BRASPAG_MERCHANT_KEY ??
-        DEFAULT_MERCHANT_CONFIG.MERCHANT_KEY,
+    const environmentSettings: Partial<MerchantSettings> = {
+      merchantId: process.env.BRASPAG_MERCHANT_ID,
+      clientSecret: process.env.BRASPAG_CLIENT_SECRET,
+      merchantKey: process.env.BRASPAG_MERCHANT_KEY,
     }
+
+    return this.validateMerchantSettings(environmentSettings)
   }
 
   /**
@@ -80,13 +76,30 @@ export class PaymentConfigurationService
   private validateMerchantSettings(
     extractedSettings: Partial<MerchantSettings>
   ): MerchantSettings {
+    const missingFields: string[] = []
+
+    if (!extractedSettings.merchantId) {
+      missingFields.push('merchantId')
+    }
+
+    if (!extractedSettings.clientSecret) {
+      missingFields.push('clientSecret')
+    }
+
+    if (!extractedSettings.merchantKey) {
+      missingFields.push('merchantKey')
+    }
+
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Missing merchant credentials: ${missingFields.join(', ')}`
+      )
+    }
+
     return {
-      merchantId:
-        extractedSettings.merchantId ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_ID,
-      clientSecret:
-        extractedSettings.clientSecret ?? DEFAULT_MERCHANT_CONFIG.CLIENT_SECRET,
-      merchantKey:
-        extractedSettings.merchantKey ?? DEFAULT_MERCHANT_CONFIG.MERCHANT_KEY,
+      merchantId: extractedSettings.merchantId as string,
+      clientSecret: extractedSettings.clientSecret as string,
+      merchantKey: extractedSettings.merchantKey as string,
       monitfyConsultantId: extractedSettings.monitfyConsultantId,
     }
   }

@@ -40,15 +40,14 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.context
     )
 
+    const orderData = await this.getOrderData(authorization)
+
     const pixRequest = createBraspagPixSaleRequest(authorization, {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
-    })
-
-    this.deps.logger.info('Creating PIX sale', {
-      merchantOrderId: pixRequest.MerchantOrderId,
-      amount: pixRequest.Payment.Amount,
-      splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
+      monitfyConsultantId: orderData?.consultantId,
+      splitProfitPct: orderData?.splitProfitPct,
+      splitDiscountPct: orderData?.splitDiscountPct,
     })
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
@@ -90,6 +89,24 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     })
 
     return authResponse
+  }
+
+  private async getOrderData(authorization: AuthorizationRequest) {
+    const extended = (authorization as unknown) as { orderId?: string }
+
+    if (!extended.orderId) {
+      return null
+    }
+
+    const orderSequence = `${extended.orderId}-01`
+
+    try {
+      return await this.deps.ordersClient.extractOrderData(orderSequence)
+    } catch (error) {
+      this.deps.logger.error('Failed to extract order data', error)
+
+      return null
+    }
   }
 
   private getMerchantSettingsFromAuthorization(
@@ -146,6 +163,7 @@ export class PixAuthorizationServiceFactory {
       clientFactory: params.clientFactory,
       context: params.context,
       logger: params.logger,
+      ordersClient: params.ordersClient,
     })
   }
 }
