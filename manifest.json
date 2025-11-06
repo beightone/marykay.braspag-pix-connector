@@ -10,6 +10,7 @@
     "docs": "0.x"
   },
   "policies": [
+    
     {
       "name": "vbase-read-write"
     },
@@ -66,6 +67,13 @@
         "host": "http-intake.logs.datadoghq.com",
         "path": "/api/v2/logs"
       }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "external.gohubly.com",
+        "path": "/api/organizations/*"
+      }
     }
   ],
   "billingOptions": {
@@ -103,6 +111,17 @@
       "appToken": {
         "title": "VTEX App Token",
         "type": "string"
+      },
+      "hublyApiKey": {
+        "title": "[Hubly] API Key",
+        "description": "API key for accessing Hubly consultant data (x-hubly-key header)",
+        "type": "string"
+      },
+      "hublyOrganizationId": {
+        "title": "[Hubly] Organization ID",
+        "description": "Organization ID for Hubly API requests",
+        "type": "string",
+        "default": "a1f197a1-559c-4114-b6e2-d646a367fc5c"
       }
     }
   },
