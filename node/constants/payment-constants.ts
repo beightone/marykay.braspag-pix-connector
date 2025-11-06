@@ -32,19 +32,12 @@ export const BRASPAG_STATUS = {
 // VBase bucket names
 export const VBASE_BUCKETS = {
   AUTHORIZATIONS: 'authorizations',
-  BRASPAG_PAYMENTS: 'braspag-payments',
+  BRASPAG_PAYMENTS: 'payments',
 } as const
 
 // Payment types
 export const PAYMENT_TYPES = {
   PIX: 'pix',
-} as const
-
-// Default merchant credentials (fallback)
-export const DEFAULT_MERCHANT_CONFIG = {
-  MERCHANT_ID: '85c49198-837a-423c-89d0-9087b5d16d49',
-  CLIENT_SECRET: 'Dbmrh40sM/ne/3fVmLVkicGdndGY5zFgUNnMJ9seBMM=',
-  MERCHANT_KEY: 'pAjaC9SZSuL6r3nzUohxjXvbsg5TDEkXPTTYTogP',
 } as const
 
 // Error codes

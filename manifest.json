@@ -45,6 +45,16 @@
       }
     },
     {
+      "name": "OMSViewer"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "portal.vtexcommercestable.com.br",
+        "path": "/api/oms/pvt/orders/"
+      }
+    },
+    {
       "name": "outbound-access",
       "attrs": {
         "host": "authsandbox.braspag.com.br"

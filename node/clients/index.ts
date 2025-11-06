@@ -4,6 +4,8 @@ import { BraspagClient } from './braspag'
 // import { GiftcardsIntegrationClient } from './giftcard-integration'
 // import { StoreServicesClient } from './store-services'
 import { Datadog } from './datadog'
+import { StoreServicesClient } from './store-services'
+import { OMSClient } from './orders'
 
 export class Clients extends IOClients {
   public get braspag() {
@@ -12,6 +14,14 @@ export class Clients extends IOClients {
 
   public get datadog() {
     return this.getOrSet('datadog', Datadog)
+  }
+
+  public get storeServices() {
+    return this.getOrSet('storeServices', StoreServicesClient)
+  }
+
+  public get orders() {
+    return this.getOrSet('orders', OMSClient)
   }
 }
 
@@ -25,6 +35,10 @@ export const clients: ClientsConfig<Clients> = {
       timeout: THIRTY_SECONDS,
     },
     braspag: {
+      retries: 3,
+      timeout: THIRTY_SECONDS,
+    },
+    orders: {
       retries: 3,
       timeout: THIRTY_SECONDS,
     },

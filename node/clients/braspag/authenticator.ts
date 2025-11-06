@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 /* eslint-disable no-console */
 import { BraspagConfig } from './config'
-import { Logger } from './logger'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 import { AuthenticateResponse } from './types'
 
 export class BraspagAuthenticator {
@@ -17,7 +17,7 @@ export class BraspagAuthenticator {
         options: { headers: Record<string, string> }
       ) => Promise<{ data: T }>
     },
-    private logger: Logger
+    private logger: DatadogCompatibleLogger
   ) {}
 
   public async getAccessToken(): Promise<string> {
@@ -136,13 +136,11 @@ export class BraspagAuthenticator {
   }
 
   public getAuthHeaders(): Record<string, string> {
-    if (!this.accessToken) {
-      throw new Error('No valid access token available')
-    }
+    // if (!this.accessToken) {
+    //   throw new Error('No valid access token available')
+    // }
 
     return {
-      Authorization: `Bearer ${this.accessToken}`,
-      'Content-Type': 'application/json',
       MerchantId: this.config.credentials.merchantId,
       MerchantKey: this.config.credentials.merchantKey,
     }

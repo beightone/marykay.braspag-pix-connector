@@ -6,6 +6,6 @@ import { MerchantSettings } from '../payment-configuration/types'
 export interface BraspagClientFactory {
   createClient(
     vtexContext: IOContext,
-    merchantSettings: MerchantSettings
+    merchantSettings?: MerchantSettings
   ): BraspagClient
 }

@@ -16,10 +16,10 @@ import {
 import {
   PixAuthorizationService,
   PixAuthorizationServiceDependencies,
-  ExtendedAuthorizationRequest,
   BraspagPayment,
   PixAuthorizationServiceFactoryParams,
 } from './types'
+import { PaymentAuthorizationData } from '../payment-configuration/types'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -27,7 +27,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
   public async authorizePixPayment(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    const merchantSettings = this.getMerchantSettings(authorization)
+    const merchantSettings = this.getMerchantSettingsFromAuthorization(
+      authorization
+    )
 
     const braspagClient = this.deps.clientFactory.createClient(
       this.deps.context,
@@ -38,55 +40,14 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.context
     )
 
-    const extendedAuth = authorization as any
-    const customData = extendedAuth.miniCart?.customData
-
-    if (!customData || !customData.customApps) {
-      this.deps.logger.warn('No custom data found in authorization', {
-        paymentId: authorization.paymentId,
-      })
-    }
-
-    const splitApp = customData?.customApps?.find(
-      (app: any) => app.id === 'splitsimulation'
-    )
-
-    const retailersApp = customData?.customApps?.find(
-      (app: any) => app.id === 'retailers'
-    )
-
-    const splitProfitPct = splitApp?.fields?.splitProfitPct
-      ? parseFloat(splitApp.fields.splitProfitPct)
-      : undefined
-
-    const splitDiscountPct = splitApp?.fields?.splitDiscountPct
-      ? parseFloat(splitApp.fields.splitDiscountPct)
-      : undefined
-
-    const consultantData = retailersApp?.fields?.consultant
-      ? JSON.parse(retailersApp.fields.consultant)
-      : null
-
-    if (!consultantData) {
-      this.deps.logger.warn('No consultant data found', {
-        paymentId: authorization.paymentId,
-      })
-    }
+    const orderData = await this.getOrderData(authorization)
 
     const pixRequest = createBraspagPixSaleRequest(authorization, {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
-      monitfyConsultantId: consultantData?.monitfyConsultantId,
-      splitProfitPct,
-      splitDiscountPct,
-    })
-
-    this.deps.logger.info('Creating PIX sale', {
-      merchantOrderId: pixRequest.MerchantOrderId,
-      amount: pixRequest.Payment.Amount,
-      splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
-      monitfyConsultantId: consultantData?.monitfyConsultantId,
-      splitProfitPct,
+      monitfyConsultantId: orderData?.consultantId,
+      splitProfitPct: orderData?.splitProfitPct,
+      splitDiscountPct: orderData?.splitDiscountPct,
     })
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
@@ -113,7 +74,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       status: payment.Status,
       splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
       pixResponse,
-      payment,
+      paymentAppData,
     })
 
     const authResponse = Authorizations.pending(authorization, {
@@ -130,23 +91,38 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     return authResponse
   }
 
-  private getMerchantSettings(authorization: AuthorizationRequest) {
-    const extendedAuth = authorization as ExtendedAuthorizationRequest
+  private async getOrderData(authorization: AuthorizationRequest) {
+    const extended = (authorization as unknown) as { orderId?: string }
 
-    const merchantSettingsArray = Object.entries(
-      extendedAuth.merchantSettings ?? {}
-    ).map(([name, value]) => ({
-      name,
-      value: String(value),
-    }))
+    if (!extended.orderId) {
+      return null
+    }
 
-    const authData = {
-      merchantSettings: merchantSettingsArray,
+    const orderSequence = `${extended.orderId}-01`
+
+    try {
+      return await this.deps.ordersClient.extractOrderData(orderSequence)
+    } catch (error) {
+      this.deps.logger.error('Failed to extract order data', error)
+
+      return null
+    }
+  }
+
+  private getMerchantSettingsFromAuthorization(
+    authorization: AuthorizationRequest
+  ) {
+    const extended = (authorization as unknown) as PaymentAuthorizationData & {
+      merchantSettings?: Array<{ name: string; value: string }>
+      paymentMethod?: string
+      miniCart?: { paymentMethod?: string }
+    }
+
+    const authData: PaymentAuthorizationData = {
+      merchantSettings: extended.merchantSettings,
       paymentId: authorization.paymentId,
-      paymentMethod: extendedAuth.paymentMethod,
-      miniCart: {
-        paymentMethod: extendedAuth.miniCart?.paymentMethod,
-      },
+      paymentMethod: extended.paymentMethod,
+      miniCart: { paymentMethod: extended.miniCart?.paymentMethod },
     }
 
     return this.deps.configService.getMerchantSettings(authData)
@@ -187,6 +163,7 @@ export class PixAuthorizationServiceFactory {
       clientFactory: params.clientFactory,
       context: params.context,
       logger: params.logger,
+      ordersClient: params.ordersClient,
     })
   }
 }

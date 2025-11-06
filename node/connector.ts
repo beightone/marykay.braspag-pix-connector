@@ -26,7 +26,8 @@ import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
-  WebhookInboundServiceFactory,
+  NotificationService,
+  BraspagNotificationHandler,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { braspagClientFactory } from './services/braspag-client-factory'
@@ -63,7 +64,7 @@ export default class BraspagConnector extends PaymentProvider<
 
   private readonly pixOpsService: any
 
-  private readonly webhookService: any
+  private readonly notificationService: NotificationService
 
   constructor(context: any) {
     super(context)
@@ -84,6 +85,7 @@ export default class BraspagConnector extends PaymentProvider<
       clientFactory: braspagClientFactory,
       context: this.context.vtex,
       logger: this.logger,
+      ordersClient: this.context.clients.orders,
     })
 
     this.pixOpsService = PixOperationsServiceFactory.create({
@@ -94,8 +96,9 @@ export default class BraspagConnector extends PaymentProvider<
       logger: this.logger,
     })
 
-    this.webhookService = WebhookInboundServiceFactory.create(
-      this.datadogLogger
+    this.notificationService = new NotificationService(this.logger)
+    this.notificationService.addHandler(
+      new BraspagNotificationHandler(this.logger)
     )
   }
 
@@ -112,12 +115,7 @@ export default class BraspagConnector extends PaymentProvider<
       }>
     }
   ): Promise<AuthorizationResponse> {
-    this.logger.info('Authorize called', {
-      paymentId: authorization.paymentId,
-      paymentMethod: (authorization as any).paymentMethod,
-      isTestSuite: this.isTestSuite,
-    })
-
+    console.dir({where: 'connector.authorize', authorization}, { depth: null })
     if (this.isTestSuite) {
       return this.handleTestSuiteAuthorization(authorization)
     }
@@ -133,6 +131,8 @@ export default class BraspagConnector extends PaymentProvider<
         cancellationId: randomString(),
       })
     }
+
+    console.dir({where: 'connector.cancel', cancellation}, { depth: null })
 
     return this.pixOpsService.cancelPayment(cancellation)
   }
@@ -195,11 +195,14 @@ export default class BraspagConnector extends PaymentProvider<
   private async handleProductionAuthorization(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    try {
-      if (!this.isPixPayment(authorization)) {
-        throw new Error(RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED)
-      }
+    if (!this.isPixPayment(authorization)) {
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.DENIED,
+        message: RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED,
+      })
+    }
 
+    try {
       return this.pixAuthService.authorizePixPayment(authorization)
     } catch (error) {
       this.logger.error('PIX authorization failed', error)
@@ -214,10 +217,27 @@ export default class BraspagConnector extends PaymentProvider<
   }
 
   private isPixPayment(authorization: AuthorizationRequest): boolean {
-    return (
-      (authorization as any).paymentMethod === 'Pix' ||
-      (authorization as any).miniCart?.paymentMethod === 'Pix'
-    )
+    type MaybePixMethod = {
+      paymentMethod?: string
+      miniCart?: { paymentMethod?: string }
+    }
+
+    const obj: unknown = authorization as unknown
+
+    if (
+      obj !== null &&
+      typeof obj === 'object' &&
+      ('paymentMethod' in obj || 'miniCart' in obj)
+    ) {
+      const candidate = obj as MaybePixMethod
+
+      return (
+        candidate.paymentMethod === 'Pix' ||
+        candidate.miniCart?.paymentMethod === 'Pix'
+      )
+    }
+
+    return false
   }
 
   /**
@@ -230,7 +250,6 @@ export default class BraspagConnector extends PaymentProvider<
       headers: request.headers,
     })
 
-    // Create VBase client adapter
     const vbaseClient = {
       getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
         this.context.clients.vbase.getJSON<T>(bucket, key, nullIfNotFound),
@@ -239,7 +258,18 @@ export default class BraspagConnector extends PaymentProvider<
       },
     }
 
-    // Delegate to webhook service
-    return this.webhookService.processWebhook(request, vbaseClient)
+    const notificationContext = {
+      status: 200,
+      body: request.body,
+      clients: {
+        vbase: vbaseClient,
+      },
+      request: { body: request.body },
+    }
+
+    return this.notificationService.processNotification(
+      request.body,
+      notificationContext as any
+    )
   }
 }

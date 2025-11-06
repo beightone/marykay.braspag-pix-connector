@@ -9,6 +9,10 @@
     "notifications": {
       "path": "/_v/braspag-pix-connector/v0/notifications",
       "public": true
+    },
+    "health": {
+      "path": "/_v/braspag-pix-connector/v0/health",
+      "public": true
     }
   }
 }

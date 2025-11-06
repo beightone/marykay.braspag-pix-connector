@@ -13,7 +13,3 @@ export {
   VBaseAuthorizationStorageService,
   PaymentStorageServiceFactory,
 } from './payment-storage'
-export {
-  WebhookInboundService,
-  WebhookInboundServiceFactory,
-} from './webhook-inbound'
