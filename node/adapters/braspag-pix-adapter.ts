@@ -10,6 +10,7 @@ import {
   AuthorizationWithSplits,
   BuyerInfo,
 } from './types'
+import { calculateCommissions } from '../helpers/payment-split/calculate-commissions'
 
 const MARY_KAY_SPLIT_CONFIG = {
   MARKETPLACE_MERCHANT_ID: 'D23429C6-4CDC-484E-9DFA-A8ECD5EA539C',
@@ -171,23 +172,38 @@ export class BraspagPixRequestBuilder {
     config: BraspagPixAdapterConfig,
     totalAmount: number
   ): SplitPaymentEntry[] {
-    if (!config.monitfyConsultantId || !config.splitProfitPct) {
+    const subordinateMerchantId = config.braspagId || config.monitfyConsultantId
+
+    if (!subordinateMerchantId || !config.splitProfitPct) {
       return []
     }
 
-    const {
-      maryKayAmount,
-      consultantAmount,
-    } = MaryKaySplitCalculator.calculateSplit(
-      totalAmount,
-      config.splitProfitPct
+    const totalTaxes = config.totalTaxes ?? 5
+    const subordinateRaw = Math.max(0, Math.min(100, (config.splitProfitPct ?? 0) - totalTaxes))
+    const masterRaw = Math.max(0, Math.min(100, 100 - subordinateRaw))
+
+    const adjusted = calculateCommissions(
+      {
+        totalItemsAmount: config.itemsSubtotal ?? totalAmount,
+        totalDiscountAmount: config.discountsSubtotal ?? 0,
+        couponDiscountAmount: config.couponDiscount ?? 0,
+      },
+      { master: masterRaw, subordinate: subordinateRaw },
+      !(config.isConsultantCoupon ?? true),
+      config.isFreeShippingCoupon ?? false
     )
+
+    const shippingValue = config.shippingValue ?? 0
+    const netAmount = Math.max(0, totalAmount - shippingValue)
+
+    const consultantAmount = Math.round(netAmount * (adjusted.subordinate / 100))
+    const maryKayAmount = totalAmount - consultantAmount
 
     return [
       MaryKaySplitCalculator.createMaryKaySplit(maryKayAmount),
       MaryKaySplitCalculator.createConsultantSplit(
         consultantAmount,
-        config.monitfyConsultantId
+        subordinateMerchantId
       ),
     ]
   }
