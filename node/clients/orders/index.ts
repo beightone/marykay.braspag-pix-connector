@@ -1,13 +1,13 @@
 import { OMS } from '@vtex/clients'
-// eslint-disable-next-line prettier/prettier
 import type { InstanceOptions, IOContext } from '@vtex/api'
 import type { AuthMethod, OrderDetailResponse } from '@vtex/clients'
 
-import {
-  ExtractedOrderData,
-} from './types'
+import { ExtractedOrderData } from './types'
+import { HublyClient } from '../hubly'
 
 export class OMSClient extends OMS {
+  private hublyClient: HublyClient
+
   constructor(ctx: IOContext, options?: InstanceOptions) {
     super(ctx, {
       ...options,
@@ -16,6 +16,8 @@ export class OMSClient extends OMS {
         VtexIdclientAutCookie: ctx.authToken,
       },
     })
+
+    this.hublyClient = new HublyClient(ctx, options)
   }
 
   private readonly defaultAuthMethod: AuthMethod = 'AUTH_TOKEN'
@@ -24,15 +26,18 @@ export class OMSClient extends OMS {
     return this.order(id, this.defaultAuthMethod)
   }
 
-  public async extractOrderData(orderId: string): Promise<ExtractedOrderData> {
+  public async extractOrderData(
+    orderId: string,
+    hublyConfig?: { apiKey?: string; organizationId?: string }
+  ): Promise<ExtractedOrderData> {
     const order = await this.getOrder(orderId)
     const customApps = order.customData?.customApps ?? []
 
-    // const consultantApp = customApps.find(app => app.id === 'consultant')
-    const splitApp = customApps.find(app => app.id === 'splitsimulation')
+    const consultantApp = customApps.find((app) => app.id === 'consultant')
+    const splitApp = customApps.find((app) => app.id === 'splitsimulation')
 
-    const consultantId = '6a1367f1-ca79-40b3-9e4a-d375c8e8ad6c'
-    // consultantApp?.fields?.consultantId?.split('_')[1]
+    const consultantId = consultantApp?.fields?.consultantId?.split('_')[0]
+
     const splitProfitPct = splitApp?.fields?.splitProfitPct
       ? parseFloat(splitApp.fields.splitProfitPct)
       : undefined
@@ -41,10 +46,57 @@ export class OMSClient extends OMS {
       ? parseFloat(splitApp.fields.splitDiscountPct)
       : undefined
 
+    const totals = order.totals || []
+    const itemsSubtotal = totals.find((t) => t.id === 'Items')?.value ?? 1
+    const discountsSubtotal = totals.find((t) => t.id === 'Discounts')?.value ?? 0
+    const shippingValue = totals.find((t) => t.id === 'Shipping')?.value ?? 0
+
+    let couponDiscount = 0
+    const couponCode = (order as any)?.marketingData?.coupon as string | undefined
+    const rateIds = (order as any)?.ratesAndBenefitsData?.rateAndBenefitsIdentifiers as
+      | Array<{ id: string; matchedParameters: Record<string, string> }>
+      | undefined
+    const couponPromotionId = rateIds?.find(
+      (p) => p.matchedParameters?.['couponCode@Marketing'] === couponCode
+    )?.id
+
+    if (couponPromotionId) {
+      const items = (order.items as any[]) || []
+      couponDiscount = items.reduce((acc, item) => {
+        const priceTags: Array<{ identifier?: string; value: number }> =
+          (item.priceTags as any[]) || []
+        const tag = priceTags.find((t) => t.identifier === couponPromotionId)
+        if (!tag) return acc
+        return acc + Math.abs(tag.value)
+      }, 0)
+    }
+
+    let braspagId: string | undefined
+
+    if (consultantId && hublyConfig?.apiKey) {
+      try {
+        const consultantData = await this.hublyClient.getConsultantData(
+          consultantId,
+          hublyConfig.apiKey,
+          hublyConfig.organizationId
+        )
+
+        braspagId = this.hublyClient.getBraspagIdFromConsultant(consultantData)
+      } catch (error) {
+        console.error('Failed to fetch consultant data from Hubly', error)
+      }
+    }
+
     return {
       consultantId,
       splitProfitPct,
       splitDiscountPct,
+      braspagId,
+      itemsSubtotal,
+      discountsSubtotal,
+      shippingValue,
+      couponDiscount,
+      totalTaxes: 5,
     }
   }
 }
