@@ -121,6 +121,8 @@ export class BraspagAuthenticator {
     const requestId = requestIdMatch?.[1] ?? 'N/A'
     const environment = this.config.isProduction ? 'production' : 'sandbox'
 
+    console.dir({ error }, { depth: null, colors: true })
+
     return new Error(
       `Braspag authentication failed: Invalid client credentials. ` +
         `Please verify that the merchantId and clientSecret are correct for the ${environment} environment. ` +

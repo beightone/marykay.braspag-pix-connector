@@ -222,6 +222,9 @@ export class BraspagPixAdapterFactory {
       return undefined
     }
 
+    console.log('qrCodeString', qrCodeString)
+    console.log('qrCodeBase64', qrCodeBase64)
+
     const payload = {
       ...(qrCodeString && { code: qrCodeString, qrCodeString }),
       ...(qrCodeBase64 && {

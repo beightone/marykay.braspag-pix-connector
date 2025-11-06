@@ -23,6 +23,6 @@
   "typeAcquisition": {
     "enable": false
   },
-  "include": ["global.ts", "./**/*"],
+  "include": ["./**/*.ts", "./**/*.tsx"],
   "exclude": ["node_modules"]
 }
