@@ -172,14 +172,18 @@ export class BraspagPixRequestBuilder {
     config: BraspagPixAdapterConfig,
     totalAmount: number
   ): SplitPaymentEntry[] {
-    const subordinateMerchantId = config.braspagId || config.monitfyConsultantId
+    const subordinateMerchantId = config.braspagId
 
     if (!subordinateMerchantId || !config.splitProfitPct) {
       return []
     }
 
     const totalTaxes = config.totalTaxes ?? 5
-    const subordinateRaw = Math.max(0, Math.min(100, (config.splitProfitPct ?? 0) - totalTaxes))
+    const subordinateRaw = Math.max(
+      0,
+      Math.min(100, (config.splitProfitPct ?? 0) - totalTaxes)
+    )
+
     const masterRaw = Math.max(0, Math.min(100, 100 - subordinateRaw))
 
     const adjusted = calculateCommissions(
@@ -196,7 +200,10 @@ export class BraspagPixRequestBuilder {
     const shippingValue = config.shippingValue ?? 0
     const netAmount = Math.max(0, totalAmount - shippingValue)
 
-    const consultantAmount = Math.round(netAmount * (adjusted.subordinate / 100))
+    const consultantAmount = Math.round(
+      netAmount * (adjusted.subordinate / 100)
+    )
+
     const maryKayAmount = totalAmount - consultantAmount
 
     return [
