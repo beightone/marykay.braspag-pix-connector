@@ -27,9 +27,11 @@ export class HublyClient extends ExternalClient {
   public getBraspagIdFromConsultant(
     consultant: HublyConsultantResponse
   ): string | undefined {
-    const braspagInfo = consultant.additionalInfo.find(
-      info => info.key === 'Braspag ID'
-    )
+    const braspagInfo = consultant.additionalInfo.find(info => {
+      const k = (info.key || info.name || '').toLowerCase().trim()
+
+      return k === 'braspag id'
+    })
 
     return braspagInfo?.value
   }

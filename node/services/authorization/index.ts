@@ -64,7 +64,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
 
-    console.log('pixResponse', pixResponse)
+    console.dir(
+      { where: 'authorization.authorizePixPayment', pixResponse },
+      { depth: null, colors: true }
+    )
 
     const { Payment: payment } = pixResponse
 

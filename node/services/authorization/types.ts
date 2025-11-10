@@ -21,7 +21,12 @@ export interface PixAuthorizationServiceDependencies {
   configService: PaymentConfigurationService
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
-  context: IOContext
+  context: IOContext & {
+    settings?: {
+      hublyApiKey?: string
+      hublyOrganizationId?: string
+    }
+  }
   logger: DatadogCompatibleLogger
   ordersClient: OMSClient
 }
@@ -54,7 +59,12 @@ export interface PixAuthorizationServiceFactoryParams {
   configService: PaymentConfigurationService
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
-  context: IOContext
+  context: IOContext & {
+    settings?: {
+      hublyApiKey?: string
+      hublyOrganizationId?: string
+    }
+  }
   logger: DatadogCompatibleLogger
   ordersClient: OMSClient
 }

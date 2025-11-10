@@ -12,7 +12,8 @@ export interface HublyConsultantResponse {
     utmCampaign: string
   }
   additionalInfo: Array<{
-    key: string
+    key?: string
+    name?: string
     value: string
   }>
   affiliateStoreUrl: string
