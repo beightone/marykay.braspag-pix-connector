@@ -12,6 +12,8 @@ import {
   RESPONSE_MESSAGES,
   PAYMENT_DELAYS,
   PAYMENT_TYPES,
+  BRASPAG_STATUS,
+  ERROR_CODES,
 } from '../../constants/payment-constants'
 import {
   PixAuthorizationService,
@@ -46,9 +48,20 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
       monitfyConsultantId: orderData?.consultantId,
+      braspagId: orderData?.braspagId,
       splitProfitPct: orderData?.splitProfitPct,
       splitDiscountPct: orderData?.splitDiscountPct,
+      itemsSubtotal: orderData?.itemsSubtotal,
+      discountsSubtotal: orderData?.discountsSubtotal,
+      shippingValue: orderData?.shippingValue,
+      couponDiscount: orderData?.couponDiscount,
+      totalTaxes: orderData?.totalTaxes,
     })
+
+    console.dir(
+      { where: 'authorization.authorizePixPayment', pixRequest },
+      { depth: null, colors: true }
+    )
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
@@ -56,7 +69,26 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
 
+    console.dir(
+      { where: 'authorization.authorizePixPayment', pixResponse },
+      { depth: null, colors: true }
+    )
+
     const { Payment: payment } = pixResponse
+
+    if (payment.Status === BRASPAG_STATUS.ABORTED) {
+      this.deps.logger.warn('PIX payment aborted by Braspag', {
+        paymentId: payment.PaymentId,
+        status: payment.Status,
+        splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
+      })
+
+      return Authorizations.deny(authorization, {
+        tid: payment.PaymentId,
+        code: ERROR_CODES.DENIED,
+        message: 'PIX payment aborted - consultant account not approved',
+      })
+    }
 
     await this.storePaymentData(
       authorization.paymentId,
@@ -100,8 +132,16 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
 
     const orderSequence = `${extended.orderId}-01`
 
+    const hublyConfig = {
+      apiKey: this.deps.context.settings?.hublyApiKey,
+      organizationId: this.deps.context.settings?.hublyOrganizationId,
+    }
+
     try {
-      return await this.deps.ordersClient.extractOrderData(orderSequence)
+      return await this.deps.ordersClient.extractOrderData(
+        orderSequence,
+        hublyConfig
+      )
     } catch (error) {
       this.deps.logger.error('Failed to extract order data', error)
 

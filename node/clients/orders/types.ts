@@ -57,4 +57,10 @@ export interface ExtractedOrderData {
   consultantId?: string
   splitProfitPct?: number
   splitDiscountPct?: number
+  braspagId?: string
+  itemsSubtotal?: number
+  discountsSubtotal?: number
+  shippingValue?: number
+  couponDiscount?: number
+  totalTaxes?: number
 }

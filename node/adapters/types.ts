@@ -4,9 +4,17 @@
 export interface BraspagPixAdapterConfig {
   merchantId: string
   monitfyConsultantId?: string
+  braspagId?: string
   notificationUrl?: string
   splitProfitPct?: number
   splitDiscountPct?: number
+  itemsSubtotal?: number
+  discountsSubtotal?: number
+  shippingValue?: number
+  couponDiscount?: number
+  totalTaxes?: number
+  isConsultantCoupon?: boolean
+  isFreeShippingCoupon?: boolean
 }
 
 /**

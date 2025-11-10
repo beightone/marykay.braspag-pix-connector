@@ -22,7 +22,7 @@ import { executeAuthorization } from './flow'
 import { Clients } from './clients'
 import { Logger } from './tools/datadog/datadog'
 import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
-import { ERROR_CODES, RESPONSE_MESSAGES } from './constants/payment-constants'
+import { ERROR_CODES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
@@ -115,7 +115,6 @@ export default class BraspagConnector extends PaymentProvider<
       }>
     }
   ): Promise<AuthorizationResponse> {
-    console.dir({where: 'connector.authorize', authorization}, { depth: null })
     if (this.isTestSuite) {
       return this.handleTestSuiteAuthorization(authorization)
     }
@@ -132,8 +131,6 @@ export default class BraspagConnector extends PaymentProvider<
       })
     }
 
-    console.dir({where: 'connector.cancel', cancellation}, { depth: null })
-
     return this.pixOpsService.cancelPayment(cancellation)
   }
 
@@ -142,7 +139,45 @@ export default class BraspagConnector extends PaymentProvider<
       return Refunds.deny(refund)
     }
 
-    throw new Error('Not implemented')
+    try {
+      const storedPayment = await this.storageService.getStoredPayment(
+        refund.paymentId
+      )
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        return Refunds.deny(refund)
+      }
+
+      const extended = (refund as unknown) as {
+        merchantSettings?: Array<{ name: string; value: string }>
+      }
+
+      const merchantSettings = this.configService.getMerchantSettings({
+        merchantSettings: extended.merchantSettings,
+        paymentId: refund.paymentId,
+      } as any)
+
+      const braspagClient = braspagClientFactory.createClient(
+        this.context.vtex,
+        merchantSettings
+      )
+
+      const voidResponse = await braspagClient.voidPixPayment(
+        storedPayment.pixPaymentId
+      )
+
+      await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+
+      return Refunds.approve(refund, {
+        refundId: storedPayment.pixPaymentId,
+        code: (voidResponse.Status ?? 11).toString(),
+        message: 'PIX total refund requested successfully',
+      })
+    } catch (error) {
+      this.logger.error('PIX refund failed', error)
+
+      return Refunds.deny(refund)
+    }
   }
 
   public async settle(
@@ -195,13 +230,6 @@ export default class BraspagConnector extends PaymentProvider<
   private async handleProductionAuthorization(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    if (!this.isPixPayment(authorization)) {
-      return Authorizations.deny(authorization, {
-        code: ERROR_CODES.DENIED,
-        message: RESPONSE_MESSAGES.PAYMENT_METHOD_NOT_SUPPORTED,
-      })
-    }
-
     try {
       return this.pixAuthService.authorizePixPayment(authorization)
     } catch (error) {
@@ -214,30 +242,6 @@ export default class BraspagConnector extends PaymentProvider<
         }`,
       })
     }
-  }
-
-  private isPixPayment(authorization: AuthorizationRequest): boolean {
-    type MaybePixMethod = {
-      paymentMethod?: string
-      miniCart?: { paymentMethod?: string }
-    }
-
-    const obj: unknown = authorization as unknown
-
-    if (
-      obj !== null &&
-      typeof obj === 'object' &&
-      ('paymentMethod' in obj || 'miniCart' in obj)
-    ) {
-      const candidate = obj as MaybePixMethod
-
-      return (
-        candidate.paymentMethod === 'Pix' ||
-        candidate.miniCart?.paymentMethod === 'Pix'
-      )
-    }
-
-    return false
   }
 
   /**

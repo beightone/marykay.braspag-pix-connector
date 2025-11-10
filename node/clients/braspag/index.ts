@@ -6,6 +6,7 @@ import {
   CreatePixSaleRequest,
   CreatePixSaleResponse,
   QueryPixStatusResponse,
+  VoidPixResponse,
 } from './types'
 import {
   BraspagConfig,
@@ -63,8 +64,6 @@ export class BraspagClient extends ExternalClient {
     const operation = 'CREATE_PIX_SALE'
 
     this.logger.info(`BRASPAG: Starting ${operation}`, { payload })
-
-    console.dir(payload, { depth: null })
 
     try {
       // await this.authenticator.getAccessToken()
@@ -124,6 +123,35 @@ export class BraspagClient extends ExternalClient {
         })
         throw new Error(`Payment ${paymentId} not found in Braspag`)
       }
+
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
+        paymentId,
+        statusCode,
+      })
+      throw error
+    }
+  }
+
+  public async voidPixPayment(paymentId: string): Promise<VoidPixResponse> {
+    const operation = 'VOID_PIX_PAYMENT'
+
+    this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
+    try {
+      const headers = this.authenticator.getAuthHeaders()
+      const response = await this.http.put<VoidPixResponse>(
+        `/v2/sales/${paymentId}/void`,
+        {},
+        { headers }
+      )
+
+      this.logger.info(`BRASPAG: ${operation} successful`, {
+        paymentId,
+        status: response.Status,
+      })
+
+      return response
+    } catch (error) {
+      const statusCode = error?.response?.status
 
       this.logger.error(`BRASPAG: ${operation} failed`, error, {
         paymentId,
