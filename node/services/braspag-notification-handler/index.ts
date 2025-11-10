@@ -5,7 +5,10 @@ import {
 } from '../../types/braspag-notifications'
 import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { NotificationHandler, NotificationContext } from '../notification/types'
-import { BRASPAG_STATUS } from '../../constants/payment-constants'
+import {
+  BRASPAG_STATUS,
+  VBASE_BUCKETS,
+} from '../../constants/payment-constants'
 
 export class BraspagNotificationHandler implements NotificationHandler {
   constructor(private logger: DatadogLoggerAdapter) {}
@@ -80,7 +83,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     try {
       const storedPayment = await context.clients.vbase.getJSON<
         StoredBraspagPayment
-      >('braspag-payments', paymentId, true)
+      >(VBASE_BUCKETS.BRASPAG_PAYMENTS, paymentId, true)
 
       return storedPayment
     } catch (error) {
@@ -171,7 +174,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     }
 
     await context.clients.vbase.saveJSON(
-      'braspag-payments',
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
       paymentId,
       updatedPayment
     )
@@ -271,7 +274,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     }
 
     await context.clients.vbase.saveJSON(
-      'braspag-payments',
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
       paymentId,
       updatedPayment
     )
@@ -297,7 +300,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     }
 
     await context.clients.vbase.saveJSON(
-      'braspag-payments',
+      VBASE_BUCKETS.BRASPAG_PAYMENTS,
       paymentId,
       updatedPayment
     )

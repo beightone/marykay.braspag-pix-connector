@@ -4,13 +4,12 @@ import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { BraspagNotification } from '../../types/braspag-notifications'
 import { NotificationService } from '../../services'
 import { NotificationContext } from '../../services/notification/types'
-import { StoreServicesClient } from '../../clients/store-services'
 
 export async function notifications(ctx: Context) {
   const datadogLogger = new Logger(ctx, ctx.clients.datadog)
   const logger = new DatadogLoggerAdapter(datadogLogger)
 
-  const notificationService = new NotificationService(datadogLogger)
+  const notificationService = new NotificationService(logger)
 
   notificationService.addHandler(new BraspagNotificationHandler(logger))
 
@@ -27,8 +26,6 @@ export async function notifications(ctx: Context) {
       return
     }
 
-    const storeServicesClient = new StoreServicesClient(ctx.vtex, {})
-
     const notificationContext: NotificationContext = {
       status: ctx.status || 200,
       body: ctx.body,
@@ -42,7 +39,7 @@ export async function notifications(ctx: Context) {
         },
         storeServices: {
           forwardBraspagNotification: (notification: unknown) =>
-            storeServicesClient.forwardBraspagNotification(notification),
+            ctx.clients.storeServices.forwardBraspagNotification(notification),
         },
       },
       request: {

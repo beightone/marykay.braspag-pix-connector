@@ -6,6 +6,7 @@ import {
   CreatePixSaleRequest,
   CreatePixSaleResponse,
   QueryPixStatusResponse,
+  VoidPixResponse,
 } from './types'
 import {
   BraspagConfig,
@@ -13,28 +14,25 @@ import {
   BraspagCredentials,
 } from './config'
 import { BraspagAuthenticator } from './authenticator'
-import { Logger, VtexLogger } from './logger'
+import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
+import { Logger as DatadogLogger } from '../../tools/datadog/datadog'
+import { Datadog } from '../datadog'
 
 export class BraspagClient extends ExternalClient {
   private config: BraspagConfig
   private authenticator: BraspagAuthenticator
-  private logger: Logger
+  private logger: DatadogLoggerAdapter
 
   constructor(
     context: IOContext & { settings?: BraspagCredentials },
     options?: InstanceOptions
   ) {
-    if (!context.settings?.merchantId || !context.settings?.clientSecret || !context.settings?.merchantKey) {
-      throw new Error('Missing required Braspag credentials in settings. Please configure merchantId, merchantKey and clientSecret.')
-    }
-
-    const credentials: BraspagCredentials = context.settings
-
     const isProduction = context.workspace === 'master'
+    const credentials = context.settings
     const config = BraspagConfigBuilder.build(credentials, isProduction)
 
     super(config.environment.apiUrl, context, {
-      timeout: 30000, // TODO verificar tempo limite adequado com a braspag
+      timeout: 30000,
       ...options,
       headers: {
         ...options?.headers,
@@ -42,7 +40,11 @@ export class BraspagClient extends ExternalClient {
     })
 
     this.config = config
-    this.logger = new VtexLogger((context as any).logger)
+
+    const datadogClient = new Datadog(context, options)
+    const datadogLogger = new DatadogLogger(context as any, datadogClient)
+
+    this.logger = new DatadogLoggerAdapter(datadogLogger)
     this.authenticator = new BraspagAuthenticator(
       this.config,
       this.http,
@@ -61,24 +63,16 @@ export class BraspagClient extends ExternalClient {
   ): Promise<CreatePixSaleResponse> {
     const operation = 'CREATE_PIX_SALE'
 
-    this.logger.info(`BRASPAG: Starting ${operation}`, {
-      merchantOrderId: payload.MerchantOrderId,
-      amount: payload.Payment?.Amount,
-      splitPaymentsCount: payload.Payment?.SplitPayments?.length ?? 0,
-    })
+    this.logger.info(`BRASPAG: Starting ${operation}`, { payload })
 
     try {
-      await this.authenticator.getAccessToken()
+      // await this.authenticator.getAccessToken()
+      const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
         '/v2/sales/',
         payload,
-        {
-          headers: {
-            MerchantId: this.config.credentials.merchantId,
-            MerchantKey: this.config.credentials.merchantKey,
-          },
-        }
+        { headers }
       )
 
       this.logger.info(`BRASPAG: ${operation} successful`, {
@@ -89,9 +83,8 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error(`BRASPAG: ${operation} failed`, {
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
         merchantOrderId: payload.MerchantOrderId,
-        error: error instanceof Error ? error.message : 'Unknown error',
       })
 
       throw error
@@ -106,7 +99,7 @@ export class BraspagClient extends ExternalClient {
     this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
 
     try {
-      await this.authenticator.getAccessToken()
+      // await this.authenticator.getAccessToken()
       const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.get<QueryPixStatusResponse>(
@@ -121,9 +114,48 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error(`BRASPAG: ${operation} failed`, {
+      const statusCode = error?.response?.status
+
+      if (statusCode === 404) {
+        this.logger.warn(`BRASPAG: ${operation} - Payment not found`, {
+          paymentId,
+          statusCode,
+        })
+        throw new Error(`Payment ${paymentId} not found in Braspag`)
+      }
+
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
         paymentId,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        statusCode,
+      })
+      throw error
+    }
+  }
+
+  public async voidPixPayment(paymentId: string): Promise<VoidPixResponse> {
+    const operation = 'VOID_PIX_PAYMENT'
+
+    this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
+    try {
+      const headers = this.authenticator.getAuthHeaders()
+      const response = await this.http.put<VoidPixResponse>(
+        `/v2/sales/${paymentId}/void`,
+        {},
+        { headers }
+      )
+
+      this.logger.info(`BRASPAG: ${operation} successful`, {
+        paymentId,
+        status: response.Status,
+      })
+
+      return response
+    } catch (error) {
+      const statusCode = error?.response?.status
+
+      this.logger.error(`BRASPAG: ${operation} failed`, error, {
+        paymentId,
+        statusCode,
       })
       throw error
     }

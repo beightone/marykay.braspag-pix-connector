@@ -9,6 +9,7 @@ import { VBasePaymentStorageService } from '../payment-storage'
 import { BraspagClientFactory } from '../braspag-client-factory/types'
 import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 import { MaryKayCustomData } from '../../adapters/types'
+import { OMSClient } from '../../clients/orders'
 
 export interface PixAuthorizationService {
   authorizePixPayment(
@@ -20,8 +21,14 @@ export interface PixAuthorizationServiceDependencies {
   configService: PaymentConfigurationService
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
-  context: IOContext
+  context: IOContext & {
+    settings?: {
+      hublyApiKey?: string
+      hublyOrganizationId?: string
+    }
+  }
   logger: DatadogCompatibleLogger
+  ordersClient: OMSClient
 }
 
 export interface ExtendedAuthorizationRequest {
@@ -52,6 +59,12 @@ export interface PixAuthorizationServiceFactoryParams {
   configService: PaymentConfigurationService
   storageService: VBasePaymentStorageService
   clientFactory: BraspagClientFactory
-  context: IOContext
+  context: IOContext & {
+    settings?: {
+      hublyApiKey?: string
+      hublyOrganizationId?: string
+    }
+  }
   logger: DatadogCompatibleLogger
+  ordersClient: OMSClient
 }

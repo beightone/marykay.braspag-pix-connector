@@ -30,13 +30,37 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const braspagClient = await this.createBraspagClient(
-        cancellation.paymentId
+      const merchantSettings = this.getMerchantSettings(cancellation)
+      const braspagClient = this.deps.clientFactory.createClient(
+        this.deps.context,
+        merchantSettings
       )
 
-      const paymentStatus = await braspagClient.queryPixPaymentStatus(
-        storedPayment.pixPaymentId
-      )
+      let paymentStatus: any
+
+      try {
+        paymentStatus = await braspagClient.queryPixPaymentStatus(
+          storedPayment.pixPaymentId
+        )
+      } catch (error) {
+        if (error?.message?.includes('not found')) {
+          this.deps.logger.warn(
+            'Payment not found in Braspag, approving cancellation',
+            {
+              paymentId: cancellation.paymentId,
+              pixPaymentId: storedPayment.pixPaymentId,
+            }
+          )
+
+          return Cancellations.approve(cancellation, {
+            cancellationId: storedPayment.pixPaymentId,
+            code: 'NOT_FOUND',
+            message: 'PIX payment not found in Braspag - cancellation approved',
+          })
+        }
+
+        throw error
+      }
 
       const { Payment: payment } = paymentStatus
       const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
@@ -88,7 +112,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
   public async settlePayment(
     settlement: SettlementRequest
   ): Promise<SettlementResponse> {
-    console.log('🏦 VTEX_SETTLEMENT: Processing settlement request', {
+    this.deps.logger.info('VTEX_SETTLEMENT: Processing settlement request', {
       paymentId: settlement.paymentId,
       value: settlement.value,
       tid: settlement.tid,
@@ -101,7 +125,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('Transaction ID (tid) is required for settlement')
       }
 
-      console.log('🔍 VTEX_SETTLEMENT: Getting stored payment', {
+      this.deps.logger.info('VTEX_SETTLEMENT: Getting stored payment', {
         paymentId,
       })
 
@@ -113,17 +137,41 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      console.log('📊 VTEX_SETTLEMENT: Stored payment found', {
+      this.deps.logger.info('VTEX_SETTLEMENT: Stored payment found', {
         paymentId,
         amount: storedPayment.amount,
         status: storedPayment.status,
       })
 
-      const braspagClient = await this.createBraspagClient(paymentId)
-      const paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
+      const merchantSettings = this.getMerchantSettings(settlement)
+      const braspagClient = this.deps.clientFactory.createClient(
+        this.deps.context,
+        merchantSettings
+      )
+
+      let paymentStatus: any
+
+      try {
+        paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
+      } catch (error) {
+        if (error?.message?.includes('not found')) {
+          this.deps.logger.warn('Payment not found in Braspag for settlement', {
+            paymentId,
+            tid,
+          })
+
+          return Settlements.deny(settlement, {
+            code: 'NOT_FOUND',
+            message: 'PIX payment not found in Braspag',
+          })
+        }
+
+        throw error
+      }
+
       const { Payment: payment } = paymentStatus
 
-      console.log('🔎 VTEX_SETTLEMENT: Braspag payment status', {
+      this.deps.logger.info('VTEX_SETTLEMENT: Braspag payment status', {
         paymentId: payment.PaymentId,
         status: payment.Status,
         tid: payment.Tid,
@@ -132,13 +180,13 @@ export class BraspagPixOperationsService implements PixOperationsService {
       const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
 
       if (statusInfo.canSettle) {
-        console.log('✅ VTEX_SETTLEMENT: Payment can be settled', {
+        this.deps.logger.info('VTEX_SETTLEMENT: Payment can be settled', {
           paymentId,
           status: payment.Status,
           statusDescription: statusInfo.statusDescription,
         })
 
-        console.log('💰 VTEX_SETTLEMENT: Settlement approved', {
+        this.deps.logger.info('VTEX_SETTLEMENT: Settlement approved', {
           paymentId,
           tid,
           settlementId: payment.PaymentId,
@@ -161,7 +209,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      console.log('❌ VTEX_SETTLEMENT: Payment cannot be settled', {
+      this.deps.logger.info('VTEX_SETTLEMENT: Payment cannot be settled', {
         paymentId,
         status: payment.Status,
         statusDescription: statusInfo.statusDescription,
@@ -172,9 +220,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {
-      console.error('💥 VTEX_SETTLEMENT: Settlement failed', {
+      this.deps.logger.error('VTEX_SETTLEMENT: Settlement failed', error, {
         paymentId: settlement.paymentId,
-        error: error instanceof Error ? error.message : error,
       })
 
       this.deps.logger.error('PIX settlement failed', error)
@@ -188,18 +235,27 @@ export class BraspagPixOperationsService implements PixOperationsService {
     }
   }
 
-  private async createBraspagClient(paymentId: string) {
-    const merchantSettings = this.deps.configService.getMerchantSettings({
-      merchantSettings: [],
-      paymentId,
-      paymentMethod: 'Pix',
-      miniCart: { paymentMethod: 'Pix' },
+  private getMerchantSettings(
+    request: CancellationRequest | SettlementRequest
+  ) {
+    const extended = (request as unknown) as {
+      merchantSettings?: Array<{ name: string; value: string }>
+    }
+
+    const authData = {
+      merchantSettings: extended.merchantSettings,
+      paymentId: request.paymentId,
+    }
+
+    const settings = this.deps.configService.getMerchantSettings(authData)
+
+    this.deps.logger.info('Merchant settings extracted for operation', {
+      merchantId: settings.merchantId,
+      hasClientSecret: !!settings.clientSecret,
+      hasMerchantKey: !!settings.merchantKey,
     })
 
-    return this.deps.clientFactory.createClient(
-      this.deps.context,
-      merchantSettings
-    )
+    return settings
   }
 }
 

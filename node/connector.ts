@@ -26,7 +26,8 @@ import { ERROR_CODES } from './constants/payment-constants'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
-  WebhookInboundServiceFactory,
+  NotificationService,
+  BraspagNotificationHandler,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { braspagClientFactory } from './services/braspag-client-factory'
@@ -64,7 +65,7 @@ export default class BraspagConnector extends PaymentProvider<
 
   private readonly pixOpsService: any
 
-  private readonly webhookService: any
+  private readonly notificationService: NotificationService
 
   constructor(context: any) {
     super(context)
@@ -88,6 +89,7 @@ export default class BraspagConnector extends PaymentProvider<
       clientFactory: braspagClientFactory,
       context: this.context.vtex,
       logger: this.logger,
+      ordersClient: this.context.clients.orders,
     })
 
     this.pixOpsService = PixOperationsServiceFactory.create({
@@ -98,8 +100,9 @@ export default class BraspagConnector extends PaymentProvider<
       logger: this.logger,
     })
 
-    this.webhookService = WebhookInboundServiceFactory.create(
-      this.datadogLogger
+    this.notificationService = new NotificationService(this.logger)
+    this.notificationService.addHandler(
+      new BraspagNotificationHandler(this.logger)
     )
   }
 
@@ -154,7 +157,45 @@ export default class BraspagConnector extends PaymentProvider<
       return Refunds.deny(refund)
     }
 
-    throw new Error('Not implemented')
+    try {
+      const storedPayment = await this.storageService.getStoredPayment(
+        refund.paymentId
+      )
+
+      if (!storedPayment || storedPayment.type !== 'pix') {
+        return Refunds.deny(refund)
+      }
+
+      const extended = (refund as unknown) as {
+        merchantSettings?: Array<{ name: string; value: string }>
+      }
+
+      const merchantSettings = this.configService.getMerchantSettings({
+        merchantSettings: extended.merchantSettings,
+        paymentId: refund.paymentId,
+      } as any)
+
+      const braspagClient = braspagClientFactory.createClient(
+        this.context.vtex,
+        merchantSettings
+      )
+
+      const voidResponse = await braspagClient.voidPixPayment(
+        storedPayment.pixPaymentId
+      )
+
+      await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+
+      return Refunds.approve(refund, {
+        refundId: storedPayment.pixPaymentId,
+        code: (voidResponse.Status ?? 11).toString(),
+        message: 'PIX total refund requested successfully',
+      })
+    } catch (error) {
+      this.logger.error('PIX refund failed', error)
+
+      return Refunds.deny(refund)
+    }
   }
 
   public async settle(
@@ -185,6 +226,42 @@ export default class BraspagConnector extends PaymentProvider<
     }
   }
 
+  private async handleTestSuiteAuthorization(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    const persistedResponse = await getPersistedAuthorizationResponse(
+      this.context.clients.vbase,
+      authorization
+    )
+
+    if (persistedResponse) {
+      return persistedResponse
+    }
+
+    this.logger.info('No persisted response found, executing flow', {})
+
+    return executeAuthorization(authorization, response =>
+      this.saveAndRetry(authorization, response)
+    )
+  }
+
+  private async handleProductionAuthorization(
+    authorization: AuthorizationRequest
+  ): Promise<AuthorizationResponse> {
+    try {
+      return this.pixAuthService.authorizePixPayment(authorization)
+    } catch (error) {
+      this.logger.error('PIX authorization failed', error)
+
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.ERROR,
+        message: `PIX authorization failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
+  }
+
   /**
    * Inbound webhook handler for receiving Braspag notifications
    * Processes payment status changes and triggers appropriate actions
@@ -195,7 +272,6 @@ export default class BraspagConnector extends PaymentProvider<
       headers: request.headers,
     })
 
-    // Create VBase client adapter
     const vbaseClient = {
       getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
         this.context.clients.vbase.getJSON<T>(bucket, key, nullIfNotFound),
@@ -204,7 +280,18 @@ export default class BraspagConnector extends PaymentProvider<
       },
     }
 
-    // Delegate to webhook service
-    return this.webhookService.processWebhook(request, vbaseClient)
+    const notificationContext = {
+      status: 200,
+      body: request.body,
+      clients: {
+        vbase: vbaseClient,
+      },
+      request: { body: request.body },
+    }
+
+    return this.notificationService.processNotification(
+      request.body,
+      notificationContext as any
+    )
   }
 }

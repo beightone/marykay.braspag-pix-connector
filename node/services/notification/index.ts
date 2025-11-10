@@ -1,4 +1,4 @@
-import { Logger } from '../../tools/datadog/datadog'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 import { NotificationHandler, NotificationContext } from './types'
 
 export class NotificationResponse {
@@ -35,7 +35,7 @@ export class NotificationResponse {
 export class NotificationService {
   private handlers: NotificationHandler[] = []
 
-  constructor(private logger: Logger) {}
+  constructor(private logger: DatadogCompatibleLogger) {}
 
   public addHandler(handler: NotificationHandler): void {
     this.handlers.push(handler)
@@ -69,16 +69,11 @@ export class NotificationService {
 
       return NotificationResponse.success()
     } catch (error) {
-      this.logger.error('NOTIFICATION: Processing failed', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+      this.logger.error('NOTIFICATION: Processing failed', error, {
         notification,
-        stack: error instanceof Error ? error.stack : undefined,
       })
 
-      return NotificationResponse.error(
-        'Failed to process notification',
-        error instanceof Error ? { message: error.message } : undefined
-      )
+      return NotificationResponse.error('Failed to process notification')
     }
   }
 }
