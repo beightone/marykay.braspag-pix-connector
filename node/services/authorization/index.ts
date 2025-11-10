@@ -58,6 +58,11 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       totalTaxes: orderData?.totalTaxes,
     })
 
+    console.dir(
+      { where: 'authorization.authorizePixPayment', pixRequest },
+      { depth: null, colors: true }
+    )
+
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
     if (!pixResponse.Payment) {

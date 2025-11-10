@@ -10,7 +10,6 @@
     "docs": "0.x"
   },
   "policies": [
-    
     {
       "name": "vbase-read-write"
     },

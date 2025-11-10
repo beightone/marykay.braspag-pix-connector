@@ -50,7 +50,7 @@ export class PaymentConfigurationService
   public buildNotificationUrl(vtexContext: VtexContext): string {
     const { workspace, account } = vtexContext
 
-    return `https://${workspace}--${account}.myvtex.com/_v/api/braspag-pix-connector/notifications`
+    return `https://${workspace}--${account}.myvtex.com/_v/notifications/braspag`
   }
 
   /**

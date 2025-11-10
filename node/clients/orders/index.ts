@@ -56,17 +56,22 @@ export class OMSClient extends OMS {
     const rateIds = (order as any)?.ratesAndBenefitsData?.rateAndBenefitsIdentifiers as
       | Array<{ id: string; matchedParameters: Record<string, string> }>
       | undefined
+
     const couponPromotionId = rateIds?.find(
       (p) => p.matchedParameters?.['couponCode@Marketing'] === couponCode
     )?.id
 
     if (couponPromotionId) {
       const items = (order.items as any[]) || []
+
       couponDiscount = items.reduce((acc, item) => {
         const priceTags: Array<{ identifier?: string; value: number }> =
           (item.priceTags as any[]) || []
+
         const tag = priceTags.find((t) => t.identifier === couponPromotionId)
+
         if (!tag) return acc
+
         return acc + Math.abs(tag.value)
       }, 0)
     }

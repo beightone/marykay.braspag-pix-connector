@@ -43,10 +43,10 @@ class MaryKaySplitCalculator {
 
   public static createConsultantSplit(
     amount: number,
-    subordinateMerchantId: string
+    _subordinateMerchantId: string
   ): SplitPaymentEntry {
     return {
-      SubordinateMerchantId: subordinateMerchantId,
+      SubordinateMerchantId: '13fd3f34-dfb0-4dcd-afb4-bbb71ee86f7b',
       Amount: amount,
       Fares: {
         Mdr: MARY_KAY_SPLIT_CONFIG.DEFAULT_MDR,
@@ -96,6 +96,11 @@ export class BraspagPixRequestBuilder {
   public setPayment(config: BraspagPixAdapterConfig): this {
     const amount = this.convertToAmount()
     const splitPayments = this.createSplitPayments(config, amount)
+
+    console.dir(
+      { where: 'braspag-pix-adapter.setPayment', splitPayments },
+      { depth: null, colors: true }
+    )
 
     this.request.Payment = {
       Type: 'Pix',
@@ -172,7 +177,7 @@ export class BraspagPixRequestBuilder {
     config: BraspagPixAdapterConfig,
     totalAmount: number
   ): SplitPaymentEntry[] {
-    const subordinateMerchantId = config.braspagId
+    const subordinateMerchantId = config.braspagId ?? config.monitfyConsultantId
 
     if (!subordinateMerchantId || !config.splitProfitPct) {
       return []
@@ -193,7 +198,7 @@ export class BraspagPixRequestBuilder {
         couponDiscountAmount: config.couponDiscount ?? 0,
       },
       { master: masterRaw, subordinate: subordinateRaw },
-      !(config.isConsultantCoupon ?? true),
+      !(config.isConsultantCoupon ?? false),
       config.isFreeShippingCoupon ?? false
     )
 
