@@ -1,3 +1,4 @@
+/* eslint-disable no-fallthrough */
 import {
   AuthorizationRequest,
   AuthorizationResponse,
@@ -40,6 +41,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         status: existingPayment.status,
       })
 
+      this.deps.logger.info('PIX AUTHORIZATION: Existing payment', {
+        existingPayment,
+      })
+
       switch (existingPayment.status) {
         case BRASPAG_STATUS.PAID:
           return Authorizations.approve(authorization, {
@@ -47,11 +52,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
             authorizationId: existingPayment.pixPaymentId,
           })
 
-        case BRASPAG_STATUS.PENDING:
-          return Authorizations.deny(authorization, {
+        case BRASPAG_STATUS.NOT_FINISHED:
+          return Authorizations.pending(authorization, {
             tid: existingPayment.pixPaymentId,
-            code: ERROR_CODES.PENDING,
-            message: RESPONSE_MESSAGES.PENDING,
+            delayToCancel: PAYMENT_DELAYS.PIX_CANCEL_TIMEOUT,
             delayToAutoSettle: PAYMENT_DELAYS.AUTO_SETTLE_DELAY,
             delayToAutoSettleAfterAntifraud:
               PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
@@ -65,10 +69,12 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           })
 
         default:
-          return Authorizations.deny(authorization, {
+          return Authorizations.pending(authorization, {
             tid: existingPayment.pixPaymentId,
-            code: ERROR_CODES.DENIED,
-            message: RESPONSE_MESSAGES.PIX_CANCELLED,
+            delayToCancel: PAYMENT_DELAYS.PIX_CANCEL_TIMEOUT,
+            delayToAutoSettle: PAYMENT_DELAYS.AUTO_SETTLE_DELAY,
+            delayToAutoSettleAfterAntifraud:
+              PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
           })
       }
     }
@@ -80,6 +86,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       orderId?: string
     }
 
+    this.deps.logger.info('PIX AUTHORIZATION: Extended authorization data', {
+      extended,
+    })
+
     const authData: PaymentAuthorizationData = {
       merchantSettings: extended.merchantSettings,
       paymentId: authorization.paymentId,
@@ -87,9 +97,15 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       miniCart: { paymentMethod: extended.miniCart?.paymentMethod },
     }
 
+    this.deps.logger.info('PIX AUTHORIZATION: Auth data', { authData })
+
     const merchantSettings = this.deps.configService.getMerchantSettings(
       authData
     )
+
+    this.deps.logger.info('PIX AUTHORIZATION: Merchant settings', {
+      merchantSettings,
+    })
 
     const braspagClient = this.deps.clientFactory.createClient(
       this.deps.context,
@@ -118,6 +134,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       }
     }
 
+    this.deps.logger.info('PIX AUTHORIZATION: Order data', { orderData })
+
     const pixRequest = createBraspagPixSaleRequest(authorization, {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
@@ -134,13 +152,23 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
+    this.deps.logger.info('PIX AUTHORIZATION: Pix response', { pixResponse })
+
     if (!pixResponse.Payment) {
+      this.deps.logger.error(
+        'PIX AUTHORIZATION: Pix response missing payment',
+        { pixResponse }
+      )
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
 
     const { Payment: payment } = pixResponse
 
     if (payment.Status === BRASPAG_STATUS.ABORTED) {
+      this.deps.logger.error('PIX AUTHORIZATION: Pix payment aborted', {
+        payment,
+      })
+
       return Authorizations.deny(authorization, {
         tid: payment.PaymentId,
         code: ERROR_CODES.DENIED,
@@ -156,6 +184,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         fee: sp.Fares?.Fee,
       })) ?? []
 
+    this.deps.logger.info('PIX AUTHORIZATION: Split summary', { splitSummary })
+
     const paymentData = {
       pixPaymentId: payment.PaymentId,
       braspagTransactionId: payment.Tid,
@@ -167,6 +197,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       callbackUrl: authorization.callbackUrl,
       ...(splitSummary.length > 0 && { splitPayments: splitSummary }),
     }
+
+    this.deps.logger.info('PIX AUTHORIZATION: Payment data', { paymentData })
 
     await this.deps.storageService.savePaymentData(
       authorization.paymentId,
@@ -184,6 +216,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const paymentAppData = createPixPaymentAppData({
       qrCodeString: payment.QrCodeString,
       qrCodeBase64: payment.QrCodeBase64Image ?? payment.QrcodeBase64Image,
+    })
+
+    this.deps.logger.info('PIX AUTHORIZATION: Payment app data', {
+      paymentAppData,
     })
 
     return Authorizations.pending(authorization, {

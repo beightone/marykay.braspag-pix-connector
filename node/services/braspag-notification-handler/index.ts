@@ -259,62 +259,30 @@ export class BraspagNotificationHandler implements NotificationHandler {
       })
     }
 
+    // Trigger VTEX retry callback to fetch current status (PPF async flow)
+    if (storedPayment.callbackUrl && context.clients.retry?.ping) {
+      try {
+        this.logger.info('VTEX_RETRY: Pinging callbackUrl', {
+          paymentId,
+          callbackUrl: storedPayment.callbackUrl,
+        })
+        await context.clients.retry.ping(storedPayment.callbackUrl)
+        this.logger.info('VTEX_RETRY: Callback ping sent', { paymentId })
+      } catch (error) {
+        this.logger.warn('VTEX_RETRY: Callback ping failed', {
+          paymentId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
     // Process for PAID status
     if (effectiveStatus === BRASPAG_STATUS.PAID) {
-      this.logger.info(
-        'BRASPAG: Payment confirmed as PAID - approving via Gateway API',
-        {
-          paymentId,
-          vtexPaymentId: storedPayment.vtexPaymentId,
-          amount: updatedPayment.amount,
-        }
-      )
-
-      // Call VTEX Gateway API directly to approve the payment
-      // This is the same approach used by PagHiper connector
-      if (
-        context.clients.vtexGateway &&
-        storedPayment.vtexPaymentId &&
-        storedPayment.merchantOrderId
-      ) {
-        try {
-          const approveData = {
-            paymentId: storedPayment.vtexPaymentId,
-            authorizationId: storedPayment.pixPaymentId,
-            status: 'approved' as const,
-            code: '200',
-            message: 'PIX payment confirmed by Braspag',
-            tid: storedPayment.pixPaymentId,
-          }
-
-          this.logger.info('BRASPAG: Calling VTEX Gateway approve API', {
-            merchantOrderId: storedPayment.merchantOrderId,
-            paymentId: storedPayment.vtexPaymentId,
-            transactionId: storedPayment.merchantOrderId,
-          })
-
-          await context.clients.vtexGateway.approvePayment(
-            context.vtex.account,
-            storedPayment.merchantOrderId,
-            storedPayment.vtexPaymentId,
-            approveData
-          )
-
-          this.logger.info('BRASPAG: Payment approved via Gateway API', {
-            paymentId: storedPayment.vtexPaymentId,
-          })
-        } catch (error) {
-          this.logger.error(
-            'BRASPAG: Failed to approve via Gateway API',
-            error,
-            {
-              paymentId: storedPayment.vtexPaymentId,
-              error: error instanceof Error ? error.message : String(error),
-            }
-          )
-        }
-      }
-
+      this.logger.info('BRASPAG: Payment confirmed as PAID', {
+        paymentId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        amount: updatedPayment.amount,
+      })
       await this.processPaymentPaid(notification, storedPayment)
     }
   }

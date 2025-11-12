@@ -13,8 +13,8 @@ export class BraspagQueryClient extends ExternalClient {
       },
     })
 
-    this.merchantId = context.settings?.merchantId || ''
-    this.merchantKey = context.settings?.merchantKey || ''
+    this.merchantId = 'D23429C6-4CDC-484E-9DFA-A8ECD5EA539C'
+    this.merchantKey = 'xt0OGmUl2gTzL0QNp4f9TzcynlpihIxZk5h06779'
   }
 
   public getTransactionByPaymentId<T = unknown>(paymentId: string) {

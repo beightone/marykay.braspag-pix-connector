@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import {
   CancellationRequest,
   CancellationResponse,
@@ -14,6 +13,7 @@ import {
   PixOperationsServiceFactoryParams,
 } from './types'
 import { PaymentStatusHandler } from '../payment-status-handler'
+import { QueryPixStatusResponse } from '../../clients/braspag/types'
 
 export class BraspagPixOperationsService implements PixOperationsService {
   constructor(private readonly deps: PixOperationsServiceDependencies) {}
@@ -36,7 +36,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         merchantSettings
       )
 
-      let paymentStatus: any
+      let paymentStatus: QueryPixStatusResponse | null = null
 
       try {
         paymentStatus = await braspagClient.queryPixPaymentStatus(
@@ -45,57 +45,66 @@ export class BraspagPixOperationsService implements PixOperationsService {
       } catch (error) {
         if (error?.message?.includes('not found')) {
           this.deps.logger.warn(
-            'Payment not found in Braspag, approving cancellation',
+            'Payment not found in Braspag before cancel, attempting void anyway',
             {
               paymentId: cancellation.paymentId,
               pixPaymentId: storedPayment.pixPaymentId,
             }
           )
-
-          return Cancellations.approve(cancellation, {
-            cancellationId: storedPayment.pixPaymentId,
-            code: 'NOT_FOUND',
-            message: 'PIX payment not found in Braspag - cancellation approved',
-          })
+        } else {
+          throw error
         }
-
-        throw error
       }
 
-      const { Payment: payment } = paymentStatus
-      const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
+      const currentStatus =
+        paymentStatus?.Payment?.Status ?? storedPayment.status ?? 0
 
-      if (statusInfo.isAlreadyPaid) {
-        return Cancellations.deny(cancellation, {
-          code: 'PAID',
-          message: 'PIX payment cannot be cancelled - already paid',
-        })
-      }
+      const { Payment: payment } =
+        paymentStatus ??
+        ({
+          Payment: {
+            PaymentId: storedPayment.pixPaymentId,
+            Status: currentStatus,
+          },
+        } as any)
 
-      if (statusInfo.isAlreadyCancelled) {
+      // If already refunded/voided
+      if (currentStatus === 11) {
         return Cancellations.approve(cancellation, {
-          cancellationId: payment.PaymentId,
-          code: payment.Status?.toString() ?? 'CANCELLED',
-          message: 'PIX payment already cancelled',
+          cancellationId: payment.PaymentId as string,
+          code: '11',
+          message: 'PIX payment already refunded',
         })
       }
 
-      if (statusInfo.canCancel) {
+      // If paid, perform total void (refund)
+      if (currentStatus === 2) {
+        const voidResponse = await braspagClient.voidPixPayment(
+          payment.PaymentId as string
+        )
+
         await this.deps.storageService.updatePaymentStatus(
           cancellation.paymentId,
-          10
+          11
         )
 
         return Cancellations.approve(cancellation, {
-          cancellationId: payment.PaymentId,
-          code: '10',
-          message: 'PIX payment cancellation requested successfully',
+          cancellationId: payment.PaymentId as string,
+          code: (voidResponse.Status ?? 11).toString(),
+          message: 'PIX total void requested successfully',
         })
       }
 
-      return Cancellations.deny(cancellation, {
-        code: payment.Status?.toString() ?? 'UNKNOWN',
-        message: `PIX payment cannot be cancelled. Status: ${statusInfo.statusDescription}`,
+      // If not paid yet, cancel locally without calling Braspag void
+      await this.deps.storageService.updatePaymentStatus(
+        cancellation.paymentId,
+        10
+      )
+
+      return Cancellations.approve(cancellation, {
+        cancellationId: payment.PaymentId as string,
+        code: '10',
+        message: 'PIX payment cancelled before confirmation',
       })
     } catch (error) {
       this.deps.logger.error('PIX cancellation failed', error)

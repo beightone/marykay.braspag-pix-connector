@@ -107,6 +107,8 @@ export class BraspagClient extends ExternalClient {
         { headers }
       )
 
+      console.log('BRASPAG: Response', response)
+
       this.logger.info(`BRASPAG: ${operation} successful`, {
         paymentId,
         status: response.Payment?.Status,
