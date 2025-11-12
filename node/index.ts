@@ -3,7 +3,12 @@ import { method } from '@vtex/api'
 
 import { clients } from './clients'
 import BraspagConnector from './connector'
-import { notifications, parseBody } from './middlewares'
+import {
+  notifications,
+  parseBody,
+  pixSplits,
+  withAppSettings,
+} from './middlewares'
 import { health } from './tools/health'
 
 const service = new PaymentProviderService({
@@ -11,10 +16,13 @@ const service = new PaymentProviderService({
   connector: BraspagConnector,
   routes: {
     notifications: method({
-      POST: [parseBody, notifications],
+      POST: [withAppSettings, parseBody, notifications],
     }),
     health: method({
       GET: [health],
+    }),
+    pixSplits: method({
+      GET: [pixSplits],
     }),
   },
 })

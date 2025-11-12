@@ -1,6 +1,9 @@
 export interface NotificationContext {
   status: number
   body: unknown
+  vtex: {
+    account: string
+  }
   clients: {
     vbase: {
       getJSON: <T>(
@@ -12,6 +15,24 @@ export interface NotificationContext {
     }
     storeServices?: {
       forwardBraspagNotification: (notification: unknown) => Promise<unknown>
+    }
+    braspag?: {
+      queryPixStatus: (paymentId: string) => Promise<unknown>
+    }
+    vtexGateway?: {
+      approvePayment: (
+        account: string,
+        transactionId: string,
+        paymentId: string,
+        data: {
+          paymentId: string
+          authorizationId: string
+          status: 'approved' | 'denied'
+          code: string
+          message: string
+          tid: string
+        }
+      ) => Promise<unknown>
     }
   }
   request: {

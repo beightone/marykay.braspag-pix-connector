@@ -119,11 +119,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
     })
 
     try {
-      const { tid, paymentId } = settlement
-
-      if (!tid) {
-        throw new Error('Transaction ID (tid) is required for settlement')
-      }
+      const { paymentId } = settlement
 
       this.deps.logger.info('VTEX_SETTLEMENT: Getting stored payment', {
         paymentId,
@@ -139,84 +135,45 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
       this.deps.logger.info('VTEX_SETTLEMENT: Stored payment found', {
         paymentId,
+        pixPaymentId: storedPayment.pixPaymentId,
+        braspagTransactionId: storedPayment.braspagTransactionId,
         amount: storedPayment.amount,
         status: storedPayment.status,
       })
 
-      const merchantSettings = this.getMerchantSettings(settlement)
-      const braspagClient = this.deps.clientFactory.createClient(
-        this.deps.context,
-        merchantSettings
+      const statusInfo = PaymentStatusHandler.getStatusInfo(
+        storedPayment.status ?? 0
       )
-
-      let paymentStatus: any
-
-      try {
-        paymentStatus = await braspagClient.queryPixPaymentStatus(tid)
-      } catch (error) {
-        if (error?.message?.includes('not found')) {
-          this.deps.logger.warn('Payment not found in Braspag for settlement', {
-            paymentId,
-            tid,
-          })
-
-          return Settlements.deny(settlement, {
-            code: 'NOT_FOUND',
-            message: 'PIX payment not found in Braspag',
-          })
-        }
-
-        throw error
-      }
-
-      const { Payment: payment } = paymentStatus
-
-      this.deps.logger.info('VTEX_SETTLEMENT: Braspag payment status', {
-        paymentId: payment.PaymentId,
-        status: payment.Status,
-        tid: payment.Tid,
-      })
-
-      const statusInfo = PaymentStatusHandler.getStatusInfo(payment.Status ?? 0)
 
       if (statusInfo.canSettle) {
         this.deps.logger.info('VTEX_SETTLEMENT: Payment can be settled', {
           paymentId,
-          status: payment.Status,
+          status: storedPayment.status,
           statusDescription: statusInfo.statusDescription,
-        })
-
-        this.deps.logger.info('VTEX_SETTLEMENT: Settlement approved', {
-          paymentId,
-          tid,
-          settlementId: payment.PaymentId,
         })
 
         this.deps.logger.info('Mary Kay PIX settlement processed', {
           paymentId,
-          splitInfo: {
-            consultantSplit: '75%',
-            marketplaceSplit: '25%',
-            processedBy: 'braspag',
-          },
+          consultantSplitAmount: storedPayment.consultantSplitAmount,
+          masterSplitAmount: storedPayment.masterSplitAmount,
+          splitPayments: storedPayment.splitPayments,
         })
 
         return Settlements.approve(settlement, {
-          settleId: payment.PaymentId,
-          code: '201',
-          message:
-            'PIX payment successfully settled with Mary Kay split processing',
+          settleId: storedPayment.pixPaymentId,
+          code: storedPayment.status?.toString() ?? '2',
+          message: 'PIX payment settled successfully',
         })
       }
 
-      this.deps.logger.info('VTEX_SETTLEMENT: Payment cannot be settled', {
+      this.deps.logger.warn('VTEX_SETTLEMENT: Payment cannot be settled', {
         paymentId,
-        status: payment.Status,
+        status: storedPayment.status,
         statusDescription: statusInfo.statusDescription,
       })
 
       return Settlements.deny(settlement, {
-        code: payment.Status?.toString() ?? 'DENIED',
+        code: storedPayment.status?.toString() ?? 'INVALID_STATUS',
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {

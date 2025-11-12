@@ -33,20 +33,6 @@ import { PixAuthorizationServiceFactory } from './services/authorization'
 import { braspagClientFactory } from './services/braspag-client-factory'
 import { PixOperationsServiceFactory } from './services/operations'
 
-const authorizationsBucket = 'authorizations'
-const persistAuthorizationResponse = async (
-  vbase: any,
-  resp: AuthorizationResponse
-) => vbase.saveJSON(authorizationsBucket, resp.paymentId, resp)
-
-const getPersistedAuthorizationResponse = async (
-  vbase: any,
-  req: AuthorizationRequest
-) =>
-  vbase.getJSON(authorizationsBucket, req.paymentId, true) as Promise<
-    AuthorizationResponse | undefined
-  >
-
 export default class BraspagConnector extends PaymentProvider<
   Clients,
   PaymentProviderState,
@@ -115,11 +101,55 @@ export default class BraspagConnector extends PaymentProvider<
       }>
     }
   ): Promise<AuthorizationResponse> {
+    this.logger.info('AUTHORIZE: Received request', { authorization })
+
     if (this.isTestSuite) {
-      return this.handleTestSuiteAuthorization(authorization)
+      const persisted = (await this.context.clients.vbase.getJSON(
+        'authorizations',
+        authorization.paymentId,
+        true
+      )) as AuthorizationResponse | undefined
+
+      if (persisted) {
+        return persisted
+      }
+
+      const onRetry = async (response: AuthorizationResponse) => {
+        await this.context.clients.vbase.saveJSON(
+          'authorizations',
+          response.paymentId,
+          response
+        )
+
+        this.logger.info('Attempting callback to Test Suite...', {})
+        try {
+          this.callback(authorization, response)
+          this.logger.info('Callback successful', {})
+        } catch (error) {
+          this.logger.warn(
+            'Callback failed (TLS error expected in test environment)',
+            { error: error instanceof Error ? error.message : String(error) }
+          )
+        }
+      }
+
+      return executeAuthorization(authorization, response => {
+        onRetry(response)
+      })
     }
 
-    return this.handleProductionAuthorization(authorization)
+    try {
+      return await this.pixAuthService.authorizePixPayment(authorization)
+    } catch (error) {
+      this.logger.error('PIX authorization failed', error)
+
+      return Authorizations.deny(authorization, {
+        code: ERROR_CODES.ERROR,
+        message: `PIX authorization failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
   }
 
   public async cancel(
@@ -187,61 +217,13 @@ export default class BraspagConnector extends PaymentProvider<
       return Settlements.deny(settlement)
     }
 
+    console.log('PIX SETTLEMENT: Processing settlement request', { settlement })
+    console.dir(
+      { where: 'connector.settle', settlement },
+      { depth: null, colors: true }
+    )
+
     return this.pixOpsService.settlePayment(settlement)
-  }
-
-  private async saveAndRetry(
-    req: AuthorizationRequest,
-    resp: AuthorizationResponse
-  ) {
-    await persistAuthorizationResponse(this.context.clients.vbase, resp)
-
-    this.logger.info('Attempting callback to Test Suite...', {})
-    try {
-      this.callback(req, resp)
-      this.logger.info('Callback successful', {})
-    } catch (error) {
-      this.logger.warn(
-        'Callback failed (TLS error expected in test environment)',
-        { error: error instanceof Error ? error.message : String(error) }
-      )
-    }
-  }
-
-  private async handleTestSuiteAuthorization(
-    authorization: AuthorizationRequest
-  ): Promise<AuthorizationResponse> {
-    const persistedResponse = await getPersistedAuthorizationResponse(
-      this.context.clients.vbase,
-      authorization
-    )
-
-    if (persistedResponse) {
-      return persistedResponse
-    }
-
-    this.logger.info('No persisted response found, executing flow', {})
-
-    return executeAuthorization(authorization, response =>
-      this.saveAndRetry(authorization, response)
-    )
-  }
-
-  private async handleProductionAuthorization(
-    authorization: AuthorizationRequest
-  ): Promise<AuthorizationResponse> {
-    try {
-      return this.pixAuthService.authorizePixPayment(authorization)
-    } catch (error) {
-      this.logger.error('PIX authorization failed', error)
-
-      return Authorizations.deny(authorization, {
-        code: ERROR_CODES.ERROR,
-        message: `PIX authorization failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-      })
-    }
   }
 
   /**

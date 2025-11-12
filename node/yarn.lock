@@ -5001,9 +5001,9 @@ map-visit@^1.0.0:
   dependencies:
     object-visit "^1.0.0"
 
-"marykay.braspag-pix-connector@https://pixconnector--marykayhomolog.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@1.0.0+build1762192662/public/_types/react":
+"marykay.braspag-pix-connector@https://pixconnector--marykayhomolog.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@1.0.0+build1762890232/public/_types/react":
   version "0.0.0"
-  resolved "https://pixconnector--marykayhomolog.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@1.0.0+build1762192662/public/_types/react#fa7a0347e046eab3dd768998fc9252b2c0dd5aef"
+  resolved "https://pixconnector--marykayhomolog.myvtex.com/_v/private/typings/linked/v1/marykay.braspag-pix-connector@1.0.0+build1762890232/public/_types/react#fa7a0347e046eab3dd768998fc9252b2c0dd5aef"
 
 math-intrinsics@^1.1.0:
   version "1.1.0"

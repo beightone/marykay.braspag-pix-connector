@@ -5,6 +5,8 @@ import { Datadog } from './datadog'
 import { StoreServicesClient } from './store-services'
 import { OMSClient } from './orders'
 import { HublyClient } from './hubly'
+import { BraspagQueryClient } from './braspag-query'
+import { VtexGatewayClient } from './vtex-gateway'
 
 export class Clients extends IOClients {
   public get braspag() {
@@ -25,6 +27,14 @@ export class Clients extends IOClients {
 
   public get hubly() {
     return this.getOrSet('hubly', HublyClient)
+  }
+
+  public get braspagQuery() {
+    return this.getOrSet('braspagQuery', BraspagQueryClient)
+  }
+
+  public get vtexGateway() {
+    return this.getOrSet('vtexGateway', VtexGatewayClient)
   }
 }
 
@@ -47,6 +57,10 @@ export const clients: ClientsConfig<Clients> = {
     },
     hubly: {
       retries: 3,
+      timeout: THIRTY_SECONDS,
+    },
+    braspagQuery: {
+      retries: 2,
       timeout: THIRTY_SECONDS,
     },
   },

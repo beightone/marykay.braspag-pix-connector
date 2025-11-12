@@ -29,6 +29,9 @@ export async function notifications(ctx: Context) {
     const notificationContext: NotificationContext = {
       status: ctx.status || 200,
       body: ctx.body,
+      vtex: {
+        account: ctx.vtex.account,
+      },
       clients: {
         vbase: {
           getJSON: <T>(bucket: string, key: string, nullIfNotFound?: boolean) =>
@@ -40,6 +43,31 @@ export async function notifications(ctx: Context) {
         storeServices: {
           forwardBraspagNotification: (notification: unknown) =>
             ctx.clients.storeServices.forwardBraspagNotification(notification),
+        },
+        braspag: {
+          queryPixStatus: (paymentId: string) =>
+            ctx.clients.braspagQuery.getTransactionByPaymentId(paymentId),
+        },
+        vtexGateway: {
+          approvePayment: (
+            account: string,
+            transactionId: string,
+            paymentId: string,
+            data: {
+              paymentId: string
+              authorizationId: string
+              status: 'approved' | 'denied'
+              code: string
+              message: string
+              tid: string
+            }
+          ) =>
+            ctx.clients.vtexGateway.approvePayment(
+              account,
+              transactionId,
+              paymentId,
+              data
+            ),
         },
       },
       request: {
