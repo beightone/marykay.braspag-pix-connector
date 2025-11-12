@@ -64,6 +64,9 @@ export default class BraspagConnector extends PaymentProvider<
     // Create adapter for services compatibility
     this.logger = new DatadogLoggerAdapter(this.datadogLogger)
 
+    // Set logger on braspag client factory
+    braspagClientFactory.setLogger(this.logger)
+
     // Initialize services after logger
     this.pixAuthService = PixAuthorizationServiceFactory.create({
       configService: this.configService,
@@ -89,17 +92,7 @@ export default class BraspagConnector extends PaymentProvider<
   }
 
   public async authorize(
-    authorization: AuthorizationRequest & {
-      paymentMethod?: string
-      splits?: Array<{
-        merchantId: string
-        amount: number
-        commission?: {
-          fee?: number
-          gateway?: number
-        }
-      }>
-    }
+    authorization: AuthorizationRequestWithSplits
   ): Promise<AuthorizationResponse> {
     this.logger.info('AUTHORIZE: Received request', { authorization })
 
