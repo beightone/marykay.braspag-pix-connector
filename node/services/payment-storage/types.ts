@@ -11,18 +11,4 @@ export interface PaymentWriter {
 
 export interface PaymentStorage extends PaymentReader, PaymentWriter {}
 
-export interface AuthorizationStorage {
-  saveAuthorizationResponse(response: AuthorizationResponseData): Promise<void>
-  getAuthorizationResponse(
-    paymentId: string
-  ): Promise<AuthorizationResponseData | null>
-}
-
-export interface AuthorizationResponseData {
-  paymentId: string
-  status: string
-  code?: string
-  message?: string
-  tid?: string
-  paymentAppData?: unknown
-}
+// Authorization storage interfaces removed as they are no longer used

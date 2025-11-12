@@ -12,7 +12,7 @@ export const TIMEOUT_CONFIG = {
 // Payment delays
 export const PAYMENT_DELAYS = {
   PIX_CANCEL_TIMEOUT: 15 * 60 * 1000, // 15 minutes
-  AUTO_SETTLE_DELAY: 2 * 60 * 1000, // 2 minutes
+  AUTO_SETTLE_DELAY: 10 * 60 * 1000, // 10 minutes - Time window before VTEX auto-cancels pending payment
   AUTO_SETTLE_AFTER_ANTIFRAUD: 2 * 60 * 1000, // 2 minutes
 } as const
 
@@ -62,4 +62,5 @@ export const RESPONSE_MESSAGES = {
   PIX_PAYMENT_NOT_FOUND: 'PIX payment not found or invalid payment type',
   TID_REQUIRED: 'Transaction ID (tid) is required for settlement',
   PIX_CREATION_FAILED: 'PIX payment creation failed - no payment data returned',
+  PENDING: 'PIX payment is pending customer action',
 } as const

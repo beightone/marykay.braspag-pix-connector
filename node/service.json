@@ -7,11 +7,15 @@
   "workers": 1,
   "routes": {
     "notifications": {
-      "path": "/_v/braspag-pix-connector/v0/notifications",
+      "path": "/_v/pix-connector/notifications",
       "public": true
     },
     "health": {
-      "path": "/_v/braspag-pix-connector/v0/health",
+      "path": "/_v/pix-connector/health",
+      "public": true
+    },
+    "pixSplits": {
+      "path": "/_v/pix-connector/splits/:paymentId",
       "public": true
     }
   }

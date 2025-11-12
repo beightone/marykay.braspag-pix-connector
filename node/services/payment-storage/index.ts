@@ -8,11 +8,7 @@ import { VBase } from '@vtex/api'
 
 import { StoredBraspagPayment } from '../../types/braspag-notifications'
 import { VBASE_BUCKETS } from '../../constants/payment-constants'
-import {
-  PaymentStorage,
-  AuthorizationStorage,
-  AuthorizationResponseData,
-} from './types'
+import { PaymentStorage } from './types'
 
 /**
  * VBase implementation of payment storage operations
@@ -83,49 +79,6 @@ export class VBasePaymentStorageService implements PaymentStorage {
 }
 
 /**
- * Authorization response storage operations
- */
-
-/**
- * VBase implementation for authorization response storage
- */
-export class VBaseAuthorizationStorageService implements AuthorizationStorage {
-  constructor(private vbase: VBase) {}
-
-  /**
-   * Save authorization response for test suite
-   */
-  public async saveAuthorizationResponse(
-    response: AuthorizationResponseData
-  ): Promise<void> {
-    await this.vbase.saveJSON(
-      VBASE_BUCKETS.AUTHORIZATIONS,
-      response.paymentId,
-      response
-    )
-  }
-
-  /**
-   * Retrieve authorization response for test suite
-   */
-  public async getAuthorizationResponse(
-    paymentId: string
-  ): Promise<AuthorizationResponseData | null> {
-    try {
-      const response = await this.vbase.getJSON<AuthorizationResponseData>(
-        VBASE_BUCKETS.AUTHORIZATIONS,
-        paymentId,
-        true
-      )
-
-      return response
-    } catch (error) {
-      return null
-    }
-  }
-}
-
-/**
  * Factory for creating storage service instances
  */
 export class PaymentStorageServiceFactory {
@@ -134,14 +87,5 @@ export class PaymentStorageServiceFactory {
    */
   public static createPaymentStorage(vbase: VBase): VBasePaymentStorageService {
     return new VBasePaymentStorageService(vbase)
-  }
-
-  /**
-   * Create authorization storage service with VBase
-   */
-  public static createAuthorizationStorage(
-    vbase: VBase
-  ): VBaseAuthorizationStorageService {
-    return new VBaseAuthorizationStorageService(vbase)
   }
 }

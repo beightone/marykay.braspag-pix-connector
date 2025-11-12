@@ -18,10 +18,10 @@ import {
 import {
   PixAuthorizationService,
   PixAuthorizationServiceDependencies,
-  BraspagPayment,
   PixAuthorizationServiceFactoryParams,
 } from './types'
 import { PaymentAuthorizationData } from '../payment-configuration/types'
+import { ExtractedOrderData } from '../../clients/orders'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -29,8 +29,66 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
   public async authorizePixPayment(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    const merchantSettings = this.getMerchantSettingsFromAuthorization(
-      authorization
+    const existingPayment = await this.deps.storageService.getStoredPayment(
+      authorization.paymentId
+    )
+
+    if (existingPayment) {
+      this.deps.logger.info('PIX: existing payment found', {
+        paymentId: authorization.paymentId,
+        braspagPaymentId: existingPayment.pixPaymentId,
+        status: existingPayment.status,
+      })
+
+      switch (existingPayment.status) {
+        case BRASPAG_STATUS.PAID:
+          return Authorizations.approve(authorization, {
+            tid: existingPayment.pixPaymentId,
+            authorizationId: existingPayment.pixPaymentId,
+          })
+
+        case BRASPAG_STATUS.PENDING:
+          return Authorizations.deny(authorization, {
+            tid: existingPayment.pixPaymentId,
+            code: ERROR_CODES.PENDING,
+            message: RESPONSE_MESSAGES.PENDING,
+            delayToAutoSettle: PAYMENT_DELAYS.AUTO_SETTLE_DELAY,
+            delayToAutoSettleAfterAntifraud:
+              PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
+          })
+
+        case BRASPAG_STATUS.VOIDED:
+          return Authorizations.deny(authorization, {
+            tid: existingPayment.pixPaymentId,
+            code: ERROR_CODES.DENIED,
+            message: RESPONSE_MESSAGES.PIX_CANCELLED,
+          })
+
+        default:
+          return Authorizations.deny(authorization, {
+            tid: existingPayment.pixPaymentId,
+            code: ERROR_CODES.DENIED,
+            message: RESPONSE_MESSAGES.PIX_CANCELLED,
+          })
+      }
+    }
+
+    const extended = (authorization as unknown) as PaymentAuthorizationData & {
+      merchantSettings?: Array<{ name: string; value: string }>
+      paymentMethod?: string
+      miniCart?: { paymentMethod?: string }
+      orderId?: string
+    }
+
+    const authData: PaymentAuthorizationData = {
+      merchantSettings: extended.merchantSettings,
+      paymentId: authorization.paymentId,
+      paymentMethod: extended.paymentMethod,
+      miniCart: { paymentMethod: extended.miniCart?.paymentMethod },
+    }
+
+    const merchantSettings = this.deps.configService.getMerchantSettings(
+      authData
     )
 
     const braspagClient = this.deps.clientFactory.createClient(
@@ -38,11 +96,27 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       merchantSettings
     )
 
-    const notificationUrl = this.deps.configService.buildNotificationUrl(
-      this.deps.context
-    )
+    const notificationUrl = `https://marykay.myvtex.com/_v/notifications/braspag`
 
-    const orderData = await this.getOrderData(authorization)
+    let orderData: ExtractedOrderData | null = null
+
+    if (extended.orderId) {
+      const orderSequence = `${extended.orderId}-01`
+      const hublyConfig = {
+        apiKey: this.deps.context.settings?.hublyApiKey,
+        organizationId: this.deps.context.settings?.hublyOrganizationId,
+      }
+
+      try {
+        orderData = await this.deps.ordersClient.extractOrderData(
+          orderSequence,
+          hublyConfig
+        )
+      } catch (error) {
+        this.deps.logger.error('Failed to extract order data', error)
+        orderData = null
+      }
+    }
 
     const pixRequest = createBraspagPixSaleRequest(authorization, {
       merchantId: merchantSettings.merchantId,
@@ -58,31 +132,15 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       totalTaxes: orderData?.totalTaxes,
     })
 
-    console.dir(
-      { where: 'authorization.authorizePixPayment', pixRequest },
-      { depth: null, colors: true }
-    )
-
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
     if (!pixResponse.Payment) {
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
 
-    console.dir(
-      { where: 'authorization.authorizePixPayment', pixResponse },
-      { depth: null, colors: true }
-    )
-
     const { Payment: payment } = pixResponse
 
     if (payment.Status === BRASPAG_STATUS.ABORTED) {
-      this.deps.logger.warn('PIX payment aborted by Braspag', {
-        paymentId: payment.PaymentId,
-        status: payment.Status,
-        splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
-      })
-
       return Authorizations.deny(authorization, {
         tid: payment.PaymentId,
         code: ERROR_CODES.DENIED,
@@ -90,26 +148,45 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       })
     }
 
-    await this.storePaymentData(
+    const splitSummary =
+      pixRequest.Payment.SplitPayments?.map(sp => ({
+        subordinateMerchantId: sp.SubordinateMerchantId,
+        amount: sp.Amount,
+        mdr: sp.Fares?.Mdr,
+        fee: sp.Fares?.Fee,
+      })) ?? []
+
+    const paymentData = {
+      pixPaymentId: payment.PaymentId,
+      braspagTransactionId: payment.Tid,
+      merchantOrderId: pixRequest.MerchantOrderId,
+      status: payment.Status,
+      type: PAYMENT_TYPES.PIX,
+      orderId: authorization.orderId,
+      vtexPaymentId: authorization.paymentId,
+      callbackUrl: authorization.callbackUrl,
+      ...(splitSummary.length > 0 && { splitPayments: splitSummary }),
+    }
+
+    await this.deps.storageService.savePaymentData(
       authorization.paymentId,
-      payment,
-      pixRequest.MerchantOrderId
+      paymentData
     )
+    await this.deps.storageService.savePaymentData(
+      payment.PaymentId,
+      paymentData
+    )
+    this.deps.logger.info('Payment data stored with both keys', {
+      vtexPaymentId: authorization.paymentId,
+      braspagPaymentId: payment.PaymentId,
+    })
 
     const paymentAppData = createPixPaymentAppData({
       qrCodeString: payment.QrCodeString,
       qrCodeBase64: payment.QrCodeBase64Image ?? payment.QrcodeBase64Image,
     })
 
-    this.deps.logger.info('PIX sale created successfully', {
-      paymentId: payment.PaymentId,
-      status: payment.Status,
-      splitPayments: pixRequest.Payment.SplitPayments?.length ?? 0,
-      pixResponse,
-      paymentAppData,
-    })
-
-    const authResponse = Authorizations.pending(authorization, {
+    return Authorizations.pending(authorization, {
       tid: payment.PaymentId,
       code: payment.Status?.toString() ?? '1',
       message: RESPONSE_MESSAGES.PIX_CREATED,
@@ -118,77 +195,6 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       delayToAutoSettle: PAYMENT_DELAYS.AUTO_SETTLE_DELAY,
       delayToAutoSettleAfterAntifraud:
         PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
-    })
-
-    return authResponse
-  }
-
-  private async getOrderData(authorization: AuthorizationRequest) {
-    const extended = (authorization as unknown) as { orderId?: string }
-
-    if (!extended.orderId) {
-      return null
-    }
-
-    const orderSequence = `${extended.orderId}-01`
-
-    const hublyConfig = {
-      apiKey: this.deps.context.settings?.hublyApiKey,
-      organizationId: this.deps.context.settings?.hublyOrganizationId,
-    }
-
-    try {
-      return await this.deps.ordersClient.extractOrderData(
-        orderSequence,
-        hublyConfig
-      )
-    } catch (error) {
-      this.deps.logger.error('Failed to extract order data', error)
-
-      return null
-    }
-  }
-
-  private getMerchantSettingsFromAuthorization(
-    authorization: AuthorizationRequest
-  ) {
-    const extended = (authorization as unknown) as PaymentAuthorizationData & {
-      merchantSettings?: Array<{ name: string; value: string }>
-      paymentMethod?: string
-      miniCart?: { paymentMethod?: string }
-    }
-
-    const authData: PaymentAuthorizationData = {
-      merchantSettings: extended.merchantSettings,
-      paymentId: authorization.paymentId,
-      paymentMethod: extended.paymentMethod,
-      miniCart: { paymentMethod: extended.miniCart?.paymentMethod },
-    }
-
-    return this.deps.configService.getMerchantSettings(authData)
-  }
-
-  private async storePaymentData(
-    paymentId: string,
-    payment: BraspagPayment,
-    merchantOrderId: string
-  ) {
-    const paymentData = {
-      pixPaymentId: payment.PaymentId,
-      braspagTransactionId: payment.Tid,
-      merchantOrderId,
-      status: payment.Status,
-      type: PAYMENT_TYPES.PIX,
-    }
-
-    await this.deps.storageService.savePaymentData(paymentId, paymentData)
-    await this.deps.storageService.savePaymentData(
-      payment.PaymentId,
-      paymentData
-    )
-    this.deps.logger.info('Payment data stored with both keys', {
-      vtexPaymentId: paymentId,
-      braspagPaymentId: payment.PaymentId,
     })
   }
 }

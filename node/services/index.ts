@@ -10,6 +10,5 @@ export {
 export { PaymentStatusHandler } from './payment-status-handler'
 export {
   VBasePaymentStorageService,
-  VBaseAuthorizationStorageService,
   PaymentStorageServiceFactory,
 } from './payment-storage'

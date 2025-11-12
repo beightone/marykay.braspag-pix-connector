@@ -73,6 +73,34 @@
         "host": "external.gohubly.com",
         "path": "/api/organizations/*"
       }
+    },
+    {
+      "name": "OMSViewer"
+    },
+    {
+      "name": "NotifyPayments"
+    },
+    {
+      "name": "ManageStore"
+    },
+    {
+      "name": "ViewPayments"
+    },
+    {
+      "name": "MakePayments"
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "{{account}}.vtexpayments.com.br",
+        "path": "/*"
+      }
+    },
+    {
+      "name": "outbound-access",
+      "attrs": {
+        "host": "apiquery.braspag.com.br"
+      }
     }
   ],
   "billingOptions": {

@@ -1,3 +1,4 @@
+/* eslint-disable vtex/prefer-early-return */
 import {
   BraspagNotification,
   BraspagChangeType,
@@ -165,23 +166,156 @@ export class BraspagNotificationHandler implements NotificationHandler {
       amount,
     })
 
+    // Determine effective status and amount (fallback to Braspag query if missing)
+    let effectiveStatus = status
+    let effectiveAmount = amount
+
+    this.logger.info('BRASPAG: Status before query', {
+      paymentId,
+      notificationStatus: status,
+      notificationAmount: amount,
+      storedStatus: storedPayment.status,
+      storedAmount: storedPayment.amount,
+      hasQueryClient: !!context.clients.braspag?.queryPixStatus,
+    })
+
+    if (
+      (effectiveStatus === undefined || effectiveAmount === undefined) &&
+      context.clients.braspag?.queryPixStatus
+    ) {
+      try {
+        this.logger.info('BRASPAG: Querying Braspag for status and amount', {
+          paymentId,
+        })
+        const tx = (await context.clients.braspag.queryPixStatus(
+          paymentId
+        )) as { Payment?: { Status?: number; Amount?: number } }
+
+        if (effectiveStatus === undefined) {
+          effectiveStatus = tx.Payment?.Status
+        }
+
+        if (effectiveAmount === undefined) {
+          effectiveAmount = tx.Payment?.Amount
+        }
+
+        this.logger.info('BRASPAG: Data from query', {
+          paymentId,
+          queriedStatus: tx.Payment?.Status,
+          queriedAmount: tx.Payment?.Amount,
+          effectiveStatus,
+          effectiveAmount,
+          fullResponse: tx,
+        })
+      } catch (error) {
+        this.logger.warn('BRASPAG: Failed to query status/amount', {
+          paymentId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
     // Update stored payment status
     const updatedPayment: StoredBraspagPayment = {
       ...storedPayment,
-      status,
+      status: effectiveStatus ?? storedPayment.status,
       lastUpdated: new Date().toISOString(),
-      ...(amount !== undefined && { amount }),
+      ...(effectiveAmount !== undefined && { amount: effectiveAmount }),
     }
 
+    this.logger.info('BRASPAG: Updating payment in VBase', {
+      paymentId,
+      oldStatus: storedPayment.status,
+      newStatus: updatedPayment.status,
+      effectiveStatus,
+      amount: updatedPayment.amount,
+    })
+
+    // Save with Braspag PaymentId key
     await context.clients.vbase.saveJSON(
       VBASE_BUCKETS.BRASPAG_PAYMENTS,
       paymentId,
       updatedPayment
     )
 
-    // Process split payment and callback for PAID status
-    if (status === BRASPAG_STATUS.PAID) {
-      await this.processPaymentPaid(notification, storedPayment, context)
+    // Also save with VTEX PaymentId key if available
+    if (storedPayment.vtexPaymentId) {
+      await context.clients.vbase.saveJSON(
+        VBASE_BUCKETS.BRASPAG_PAYMENTS,
+        storedPayment.vtexPaymentId,
+        updatedPayment
+      )
+      this.logger.info('BRASPAG: Payment updated in VBase with both keys', {
+        braspagPaymentId: paymentId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        finalStatus: updatedPayment.status,
+        amount: updatedPayment.amount,
+      })
+    } else {
+      this.logger.info('BRASPAG: Payment updated in VBase', {
+        paymentId,
+        finalStatus: updatedPayment.status,
+        amount: updatedPayment.amount,
+      })
+    }
+
+    // Process for PAID status
+    if (effectiveStatus === BRASPAG_STATUS.PAID) {
+      this.logger.info(
+        'BRASPAG: Payment confirmed as PAID - approving via Gateway API',
+        {
+          paymentId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          amount: updatedPayment.amount,
+        }
+      )
+
+      // Call VTEX Gateway API directly to approve the payment
+      // This is the same approach used by PagHiper connector
+      if (
+        context.clients.vtexGateway &&
+        storedPayment.vtexPaymentId &&
+        storedPayment.merchantOrderId
+      ) {
+        try {
+          const approveData = {
+            paymentId: storedPayment.vtexPaymentId,
+            authorizationId: storedPayment.pixPaymentId,
+            status: 'approved' as const,
+            code: '200',
+            message: 'PIX payment confirmed by Braspag',
+            tid: storedPayment.pixPaymentId,
+          }
+
+          this.logger.info('BRASPAG: Calling VTEX Gateway approve API', {
+            merchantOrderId: storedPayment.merchantOrderId,
+            paymentId: storedPayment.vtexPaymentId,
+            transactionId: storedPayment.merchantOrderId,
+          })
+
+          await context.clients.vtexGateway.approvePayment(
+            context.vtex.account,
+            storedPayment.merchantOrderId,
+            storedPayment.vtexPaymentId,
+            approveData
+          )
+
+          this.logger.info('BRASPAG: Payment approved via Gateway API', {
+            paymentId: storedPayment.vtexPaymentId,
+          })
+        } catch (error) {
+          this.logger.error(
+            'BRASPAG: Failed to approve via Gateway API',
+            error,
+            {
+              paymentId: storedPayment.vtexPaymentId,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          )
+        }
+      }
+
+      await this.processPaymentPaid(notification, storedPayment)
     }
   }
 
@@ -190,8 +324,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
    */
   private async processPaymentPaid(
     notification: BraspagNotification,
-    storedPayment: StoredBraspagPayment,
-    context: NotificationContext
+    storedPayment: StoredBraspagPayment
   ): Promise<void> {
     const { PaymentId } = notification
 
@@ -201,7 +334,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         merchantOrderId: storedPayment.merchantOrderId,
       })
 
-      await this.forwardToStoreServices(notification, context)
+      // No forwarding to store-services here to avoid notification loops.
 
       this.logger.info('BRASPAG: PIX payment processing completed', {
         paymentId: PaymentId,
@@ -216,44 +349,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     }
   }
 
-  /**
-   * Forward notification to store-services for split processing
-   */
-  private async forwardToStoreServices(
-    notification: BraspagNotification,
-    context: NotificationContext
-  ): Promise<void> {
-    if (!context.clients.storeServices) {
-      this.logger.warn('BRASPAG: Store Services client not available', {
-        paymentId: notification.PaymentId,
-      })
-
-      return
-    }
-
-    try {
-      this.logger.info('BRASPAG: Forwarding notification to store-services', {
-        paymentId: notification.PaymentId,
-        changeType: notification.ChangeType,
-        status: notification.Status,
-      })
-
-      await context.clients.storeServices.forwardBraspagNotification(
-        notification
-      )
-
-      this.logger.info('BRASPAG: Successfully forwarded to store-services', {
-        paymentId: notification.PaymentId,
-      })
-    } catch (error) {
-      this.logger.error('BRASPAG: Failed to forward to store-services', error, {
-        paymentId: notification.PaymentId,
-        notification,
-      })
-
-      throw error
-    }
-  }
+  // Forwarding to store-services removed to avoid loops; notification is handled within this connector.
 
   private async handleFraudAnalysisChange(params: {
     paymentId: string
