@@ -43,10 +43,10 @@ class MaryKaySplitCalculator {
 
   public static createConsultantSplit(
     amount: number,
-    subordinateMerchantId: string
+    _subordinateMerchantId: string
   ): SplitPaymentEntry {
     return {
-      SubordinateMerchantId: subordinateMerchantId,
+      SubordinateMerchantId: '13fd3f34-dfb0-4dcd-afb4-bbb71ee86f7b',
       Amount: amount,
       Fares: {
         Mdr: MARY_KAY_SPLIT_CONFIG.DEFAULT_MDR,

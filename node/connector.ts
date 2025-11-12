@@ -30,8 +30,10 @@ import {
   BraspagNotificationHandler,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
+import { PixAuthorizationService } from './services/authorization/types'
 import { braspagClientFactory } from './services/braspag-client-factory'
 import { PixOperationsServiceFactory } from './services/operations'
+import { PixOperationsService } from './services/operations/types'
 
 export default class BraspagConnector extends PaymentProvider<
   Clients,
@@ -46,28 +48,24 @@ export default class BraspagConnector extends PaymentProvider<
     this.context.clients.vbase
   )
 
-  private readonly pixAuthService: any
-
-  private readonly pixOpsService: any
+  private readonly pixAuthService: PixAuthorizationService
+  private readonly pixOpsService: PixOperationsService
 
   private readonly notificationService: NotificationService
 
   constructor(context: any) {
     super(context)
-
-    // Initialize Datadog logger
     this.datadogLogger = new Logger(
       this.context as Context,
       this.context.clients.datadog
     )
 
-    // Create adapter for services compatibility
     this.logger = new DatadogLoggerAdapter(this.datadogLogger)
+    this.notificationService = new NotificationService(this.logger)
+    this.notificationService.addHandler(
+      new BraspagNotificationHandler(this.logger)
+    )
 
-    // Set logger on braspag client factory
-    braspagClientFactory.setLogger(this.logger)
-
-    // Initialize services after logger
     this.pixAuthService = PixAuthorizationServiceFactory.create({
       configService: this.configService,
       storageService: this.storageService,
@@ -84,15 +82,10 @@ export default class BraspagConnector extends PaymentProvider<
       context: this.context.vtex,
       logger: this.logger,
     })
-
-    this.notificationService = new NotificationService(this.logger)
-    this.notificationService.addHandler(
-      new BraspagNotificationHandler(this.logger)
-    )
   }
 
   public async authorize(
-    authorization: AuthorizationRequestWithSplits
+    authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
     this.logger.info('AUTHORIZE: Received request', { authorization })
 
@@ -148,13 +141,26 @@ export default class BraspagConnector extends PaymentProvider<
   public async cancel(
     cancellation: CancellationRequest
   ): Promise<CancellationResponse> {
+    this.logger.info('CANCEL: Received request', { cancellation })
+
     if (this.isTestSuite) {
       return Cancellations.approve(cancellation, {
         cancellationId: randomString(),
       })
     }
 
-    return this.pixOpsService.cancelPayment(cancellation)
+    try {
+      return await this.pixOpsService.cancelPayment(cancellation)
+    } catch (error) {
+      this.logger.error('PIX cancellation failed', error)
+
+      return Cancellations.deny(cancellation, {
+        code: ERROR_CODES.ERROR,
+        message: `PIX cancellation failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      })
+    }
   }
 
   public async refund(refund: RefundRequest): Promise<RefundResponse> {

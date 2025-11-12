@@ -19,20 +19,8 @@ export interface NotificationContext {
     braspag?: {
       queryPixStatus: (paymentId: string) => Promise<unknown>
     }
-    vtexGateway?: {
-      approvePayment: (
-        account: string,
-        transactionId: string,
-        paymentId: string,
-        data: {
-          paymentId: string
-          authorizationId: string
-          status: 'approved' | 'denied'
-          code: string
-          message: string
-          tid: string
-        }
-      ) => Promise<unknown>
+    retry?: {
+      ping: (url: string) => Promise<unknown>
     }
   }
   request: {
