@@ -26,6 +26,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
         cancellation.paymentId
       )
 
+      this.deps.logger.info('PIX CANCELLATION: Stored payment', {
+        storedPayment,
+      })
+
       if (!storedPayment || storedPayment.type !== 'pix') {
         throw new Error('PIX payment not found or invalid payment type')
       }
@@ -39,9 +43,9 @@ export class BraspagPixOperationsService implements PixOperationsService {
       let paymentStatus: QueryPixStatusResponse | null = null
 
       try {
-        paymentStatus = await braspagClient.queryPixPaymentStatus(
-          storedPayment.pixPaymentId
-        )
+        paymentStatus = await this.deps.queryClient.getTransactionByPaymentId<
+          QueryPixStatusResponse
+        >(storedPayment.pixPaymentId)
       } catch (error) {
         if (error?.message?.includes('not found')) {
           this.deps.logger.warn(
@@ -79,20 +83,96 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
       // If paid, perform total void (refund)
       if (currentStatus === 2) {
-        const voidResponse = await braspagClient.voidPixPayment(
-          payment.PaymentId as string
-        )
+        try {
+          const voidResponse = await braspagClient.voidPixPayment(
+            payment.PaymentId as string
+          )
 
-        await this.deps.storageService.updatePaymentStatus(
-          cancellation.paymentId,
-          11
-        )
+          const isSplitError =
+            voidResponse.ProviderReturnCode === 'BP335' ||
+            voidResponse.ReasonCode === 37 ||
+            voidResponse.ReasonMessage === 'SplitTransactionalError'
 
-        return Cancellations.approve(cancellation, {
-          cancellationId: payment.PaymentId as string,
-          code: (voidResponse.Status ?? 11).toString(),
-          message: 'PIX total void requested successfully',
-        })
+          if (isSplitError) {
+            this.deps.logger.warn(
+              'PIX CANCELLATION: Split transactional error detected, voucher refund required',
+              {
+                paymentId: cancellation.paymentId,
+                providerReturnCode: voidResponse.ProviderReturnCode,
+                reasonCode: voidResponse.ReasonCode,
+                reasonMessage: voidResponse.ReasonMessage,
+                voidSplitErrors: voidResponse.VoidSplitErrors,
+              }
+            )
+
+            const errorDetails = JSON.stringify({
+              providerReturnCode: voidResponse.ProviderReturnCode,
+              providerReturnMessage: voidResponse.ProviderReturnMessage,
+              reasonCode: voidResponse.ReasonCode,
+              reasonMessage: voidResponse.ReasonMessage,
+              voidSplitErrors: voidResponse.VoidSplitErrors,
+              requiresVoucherRefund: true,
+            })
+
+            return Cancellations.deny(cancellation, {
+              code: 'BP335',
+              message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
+            })
+          }
+
+          await this.deps.storageService.updatePaymentStatus(
+            cancellation.paymentId,
+            11
+          )
+
+          return Cancellations.approve(cancellation, {
+            cancellationId: payment.PaymentId as string,
+            code: (voidResponse.Status ?? 11).toString(),
+            message: 'PIX total void requested successfully',
+          })
+        } catch (error) {
+          const errorResponse = error?.response?.data as
+            | {
+                ProviderReturnCode?: string
+                ReasonCode?: number
+                ReasonMessage?: string
+                VoidSplitErrors?: Array<{ Code: number; Message: string }>
+              }
+            | undefined
+
+          const isSplitError =
+            errorResponse?.ProviderReturnCode === 'BP335' ||
+            errorResponse?.ReasonCode === 37 ||
+            errorResponse?.ReasonMessage === 'SplitTransactionalError'
+
+          if (isSplitError) {
+            this.deps.logger.warn(
+              'PIX CANCELLATION: Split transactional error detected in exception, voucher refund required',
+              {
+                paymentId: cancellation.paymentId,
+                providerReturnCode: errorResponse?.ProviderReturnCode,
+                reasonCode: errorResponse?.ReasonCode,
+                reasonMessage: errorResponse?.ReasonMessage,
+                voidSplitErrors: errorResponse?.VoidSplitErrors,
+              }
+            )
+
+            const errorDetails = JSON.stringify({
+              providerReturnCode: errorResponse?.ProviderReturnCode,
+              reasonCode: errorResponse?.ReasonCode,
+              reasonMessage: errorResponse?.ReasonMessage,
+              voidSplitErrors: errorResponse?.VoidSplitErrors,
+              requiresVoucherRefund: true,
+            })
+
+            return Cancellations.deny(cancellation, {
+              code: 'BP335',
+              message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
+            })
+          }
+
+          throw error
+        }
       }
 
       // If not paid yet, cancel locally without calling Braspag void
@@ -233,6 +313,7 @@ export class PixOperationsServiceFactory {
       configService: params.configService,
       storageService: params.storageService,
       clientFactory: params.clientFactory,
+      queryClient: params.queryClient,
       context: params.context,
       logger: params.logger,
     })

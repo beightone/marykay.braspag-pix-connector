@@ -99,13 +99,13 @@ export class BraspagClient extends ExternalClient {
     this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
 
     try {
-      // await this.authenticator.getAccessToken()
       const headers = this.authenticator.getAuthHeaders()
+      const queryApiUrl = 'https://apiquery.braspag.com.br'
+      const fullUrl = `${queryApiUrl}/v2/sales/${paymentId}`
 
-      const response = await this.http.get<QueryPixStatusResponse>(
-        `/v2/sales/${paymentId}`,
-        { headers }
-      )
+      const response = await this.http.get<QueryPixStatusResponse>(fullUrl, {
+        headers,
+      })
 
       console.log('BRASPAG: Response', response)
 
@@ -146,14 +146,49 @@ export class BraspagClient extends ExternalClient {
         { headers }
       )
 
-      this.logger.info(`BRASPAG: ${operation} successful`, {
-        paymentId,
-        status: response.Status,
-      })
+      const isSplitError =
+        response.ProviderReturnCode === 'BP335' ||
+        response.ReasonCode === 37 ||
+        response.ReasonMessage === 'SplitTransactionalError'
+
+      if (isSplitError) {
+        this.logger.warn(`BRASPAG: ${operation} returned split error`, {
+          paymentId,
+          providerReturnCode: response.ProviderReturnCode,
+          reasonCode: response.ReasonCode,
+          reasonMessage: response.ReasonMessage,
+          voidSplitErrors: response.VoidSplitErrors,
+        })
+      } else {
+        this.logger.info(`BRASPAG: ${operation} successful`, {
+          paymentId,
+          status: response.Status,
+        })
+      }
 
       return response
     } catch (error) {
       const statusCode = error?.response?.status
+      const errorData = error?.response?.data as VoidPixResponse | undefined
+
+      if (errorData) {
+        const isSplitError =
+          errorData.ProviderReturnCode === 'BP335' ||
+          errorData.ReasonCode === 37 ||
+          errorData.ReasonMessage === 'SplitTransactionalError'
+
+        if (isSplitError) {
+          this.logger.warn(`BRASPAG: ${operation} failed with split error`, {
+            paymentId,
+            providerReturnCode: errorData.ProviderReturnCode,
+            reasonCode: errorData.ReasonCode,
+            reasonMessage: errorData.ReasonMessage,
+            voidSplitErrors: errorData.VoidSplitErrors,
+          })
+
+          return errorData
+        }
+      }
 
       this.logger.error(`BRASPAG: ${operation} failed`, error, {
         paymentId,

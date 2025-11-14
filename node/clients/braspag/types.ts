@@ -60,11 +60,24 @@ export type VoidPixRequest = {
   VoidSplitPayments: VoidSplitPaymentEntry[]
 }
 
+export type VoidSplitError = {
+  Code: number
+  Message: string
+}
+
 export type VoidPixResponse = {
   Status?: number
   Message?: string
   ReasonCode?: number
   ReasonMessage?: string
+  ProviderReturnCode?: string
+  ProviderReturnMessage?: string
+  VoidSplitErrors?: VoidSplitError[]
+  Links?: Array<{
+    Method: string
+    Rel: string
+    Href: string
+  }>
 }
 
 export type QueryPixStatusResponse = {
