@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable no-console */
 import {
   AuthorizationRequest,
@@ -16,6 +15,7 @@ import {
   Settlements,
   Authorizations,
 } from '@vtex/payment-provider'
+import { ServiceContext } from '@vtex/api'
 
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
@@ -53,7 +53,9 @@ export default class BraspagConnector extends PaymentProvider<
 
   private readonly notificationService: NotificationService
 
-  constructor(context: any) {
+  constructor(
+    context: ServiceContext<Clients, PaymentProviderState, CustomContextFields>
+  ) {
     super(context)
     this.datadogLogger = new Logger(
       this.context as Context,
@@ -79,6 +81,7 @@ export default class BraspagConnector extends PaymentProvider<
       configService: this.configService,
       storageService: this.storageService,
       clientFactory: braspagClientFactory,
+      queryClient: this.context.clients.braspagQuery,
       context: this.context.vtex,
       logger: this.logger,
     })
@@ -168,6 +171,8 @@ export default class BraspagConnector extends PaymentProvider<
       return Refunds.deny(refund)
     }
 
+    this.logger.info('PIX REFUND: Received request', { refund })
+
     try {
       const storedPayment = await this.storageService.getStoredPayment(
         refund.paymentId
@@ -181,10 +186,14 @@ export default class BraspagConnector extends PaymentProvider<
         merchantSettings?: Array<{ name: string; value: string }>
       }
 
+      this.logger.info('PIX REFUND: Extended refund', { extended })
+
       const merchantSettings = this.configService.getMerchantSettings({
         merchantSettings: extended.merchantSettings,
         paymentId: refund.paymentId,
-      } as any)
+      })
+
+      this.logger.info('PIX REFUND: Merchant settings', { merchantSettings })
 
       const braspagClient = braspagClientFactory.createClient(
         this.context.vtex,
@@ -195,7 +204,11 @@ export default class BraspagConnector extends PaymentProvider<
         storedPayment.pixPaymentId
       )
 
+      this.logger.info('PIX REFUND: Void response', { voidResponse })
+
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+
+      this.logger.info('PIX REFUND: Approving refund', { refund })
 
       return Refunds.approve(refund, {
         refundId: storedPayment.pixPaymentId,
@@ -225,10 +238,6 @@ export default class BraspagConnector extends PaymentProvider<
     return this.pixOpsService.settlePayment(settlement)
   }
 
-  /**
-   * Inbound webhook handler for receiving Braspag notifications
-   * Processes payment status changes and triggers appropriate actions
-   */
   public inbound = async (request: any): Promise<any> => {
     this.logger.info('INBOUND: Webhook received', {
       body: request.body,
