@@ -26,11 +26,7 @@ export interface VoucherRefundServiceDeps {
     cancelOrderInVtex: (orderId: string, reason?: string) => Promise<void>
   }
   storageService: {
-    getStoredPayment: (
-      paymentId: string
-    ) => Promise<
-      import('../../types/braspag-notifications').StoredBraspagPayment | null
-    >
+    getStoredPayment: (paymentId: string) => Promise<import('../../types/braspag-notifications').StoredBraspagPayment | null>
     updatePaymentStatus: (paymentId: string, status: number) => Promise<void>
   }
   logger: {
@@ -58,3 +54,4 @@ export interface VoucherRefundService {
     request: VoucherRefundRequest
   ) => Promise<VoucherRefundResponse>
 }
+
