@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /* eslint-disable no-fallthrough */
 import {
   AuthorizationRequest,
@@ -80,7 +81,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     }
 
     const extended = (authorization as unknown) as PaymentAuthorizationData & {
-      merchantSettings?: Array<{ name: string; value: string }>
+      merchantSettings?: Array<{
+        name: string
+        value: string
+      }>
       paymentMethod?: string
       miniCart?: { paymentMethod?: string }
       orderId?: string
@@ -94,7 +98,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       merchantSettings: extended.merchantSettings,
       paymentId: authorization.paymentId,
       paymentMethod: extended.paymentMethod,
-      miniCart: { paymentMethod: extended.miniCart?.paymentMethod },
+      miniCart: {
+        paymentMethod: extended.miniCart?.paymentMethod,
+      },
     }
 
     this.deps.logger.info('PIX AUTHORIZATION: Auth data', { authData })
@@ -111,6 +117,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.context,
       merchantSettings
     )
+
+    console.log('braspagClient', braspagClient)
 
     const notificationUrl = `https://marykay.myvtex.com/_v/notifications/braspag`
 
@@ -148,6 +156,43 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       shippingValue: orderData?.shippingValue,
       couponDiscount: orderData?.couponDiscount,
       totalTaxes: orderData?.totalTaxes,
+    })
+
+    this.deps.logger.info(
+      'PIX AUTHORIZATION: ===== PRE-PIX CREATION LOGS ====='
+    )
+    this.deps.logger.info('PIX AUTHORIZATION: Complete PIX Request Payload', {
+      pixRequest: JSON.stringify(pixRequest, null, 2),
+    })
+    this.deps.logger.info('PIX AUTHORIZATION: Request Details', {
+      merchantOrderId: pixRequest.MerchantOrderId,
+      customer: pixRequest.Customer,
+      paymentType: pixRequest.Payment?.Type,
+      paymentAmount: pixRequest.Payment?.Amount,
+      paymentProvider: pixRequest.Payment?.Provider,
+      notificationUrl: pixRequest.Payment?.NotificationUrl,
+      splitPayments: pixRequest.Payment?.SplitPayments,
+      splitPaymentsCount: pixRequest.Payment?.SplitPayments?.length ?? 0,
+    })
+    this.deps.logger.info('PIX AUTHORIZATION: Split Payments Breakdown', {
+      splitPayments: pixRequest.Payment?.SplitPayments?.map(sp => ({
+        subordinateMerchantId: sp.SubordinateMerchantId,
+        amount: sp.Amount,
+        mdr: sp.Fares?.Mdr,
+        fee: sp.Fares?.Fee,
+      })),
+    })
+    this.deps.logger.info('PIX AUTHORIZATION: Configuration Used', {
+      merchantId: merchantSettings.merchantId,
+      notificationUrl,
+      orderData,
+    })
+    this.deps.logger.info('PIX AUTHORIZATION: Authorization Data', {
+      paymentId: authorization.paymentId,
+      transactionId: authorization.transactionId,
+      orderId: authorization.orderId,
+      value: authorization.value,
+      callbackUrl: authorization.callbackUrl,
     })
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
