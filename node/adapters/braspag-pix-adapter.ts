@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { AuthorizationRequest } from '@vtex/payment-provider'
 
 import {
@@ -43,10 +44,10 @@ class MaryKaySplitCalculator {
 
   public static createConsultantSplit(
     amount: number,
-    _subordinateMerchantId: string
+    subordinateMerchantId: string
   ): SplitPaymentEntry {
     return {
-      SubordinateMerchantId: '13fd3f34-dfb0-4dcd-afb4-bbb71ee86f7b',
+      SubordinateMerchantId: subordinateMerchantId,
       Amount: amount,
       Fares: {
         Mdr: MARY_KAY_SPLIT_CONFIG.DEFAULT_MDR,
@@ -179,7 +180,19 @@ export class BraspagPixRequestBuilder {
   ): SplitPaymentEntry[] {
     const subordinateMerchantId = config.braspagId ?? config.monitfyConsultantId
 
+    console.log('BRASPAG_ADAPTER: Creating split payments', {
+      braspagId: config.braspagId,
+      monitfyConsultantId: config.monitfyConsultantId,
+      subordinateMerchantId,
+      splitProfitPct: config.splitProfitPct,
+    })
+
     if (!subordinateMerchantId || !config.splitProfitPct) {
+      console.log('BRASPAG_ADAPTER: Skipping split - missing data', {
+        hasSubordinateMerchantId: !!subordinateMerchantId,
+        hasSplitProfitPct: !!config.splitProfitPct,
+      })
+
       return []
     }
 
