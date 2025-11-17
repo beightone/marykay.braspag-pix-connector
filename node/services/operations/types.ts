@@ -26,6 +26,17 @@ export interface PixOperationsServiceDependencies {
   queryClient: BraspagQueryClient
   context: IOContext
   logger: DatadogCompatibleLogger
+  ordersClient?: {
+    getOrder: (orderId: string) => Promise<any>
+    cancelOrderInVtex: (orderId: string, reason?: string) => Promise<void>
+  }
+  giftcardsClient?: {
+    createRefundVoucher: (request: {
+      userId: string
+      refundValue: number
+      orderId: string
+    }) => Promise<{ giftCardId: string; redemptionCode: string }>
+  }
 }
 
 export interface PixOperationsServiceFactoryParams {
@@ -35,4 +46,15 @@ export interface PixOperationsServiceFactoryParams {
   queryClient: BraspagQueryClient
   context: IOContext
   logger: DatadogCompatibleLogger
+  ordersClient?: {
+    getOrder: (orderId: string) => Promise<any>
+    cancelOrderInVtex: (orderId: string, reason?: string) => Promise<void>
+  }
+  giftcardsClient?: {
+    createRefundVoucher: (request: {
+      userId: string
+      refundValue: number
+      orderId: string
+    }) => Promise<{ giftCardId: string; redemptionCode: string }>
+  }
 }

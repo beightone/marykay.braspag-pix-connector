@@ -28,6 +28,7 @@ import {
   PaymentStorageServiceFactory,
   NotificationService,
   BraspagNotificationHandler,
+  VoucherRefundServiceFactory,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { PixAuthorizationService } from './services/authorization/types'
@@ -84,6 +85,15 @@ export default class BraspagConnector extends PaymentProvider<
       queryClient: this.context.clients.braspagQuery,
       context: this.context.vtex,
       logger: this.logger,
+      ordersClient: {
+        getOrder: this.context.clients.orders.getOrder.bind(
+          this.context.clients.orders
+        ),
+        cancelOrderInVtex: this.context.clients.orders.cancelOrderInVtex.bind(
+          this.context.clients.orders
+        ),
+      },
+      giftcardsClient: this.context.clients.giftcards,
     })
   }
 
@@ -205,6 +215,89 @@ export default class BraspagConnector extends PaymentProvider<
       )
 
       this.logger.info('PIX REFUND: Void response', { voidResponse })
+
+      const isSplitError =
+        voidResponse.ProviderReturnCode === 'BP335' ||
+        voidResponse.ReasonCode === 37 ||
+        voidResponse.ReasonMessage === 'SplitTransactionalError'
+
+      if (isSplitError) {
+        this.logger.warn(
+          'PIX REFUND: Split error detected, generating voucher automatically',
+          {
+            paymentId: refund.paymentId,
+            providerReturnCode: voidResponse.ProviderReturnCode,
+            reasonCode: voidResponse.ReasonCode,
+            reasonMessage: voidResponse.ReasonMessage,
+          }
+        )
+
+        try {
+          const orderId = storedPayment.merchantOrderId
+          const orderSequence = `${orderId}-01`
+          const order = await this.context.clients.orders.getOrder(
+            orderSequence
+          )
+
+          const userId =
+            (order as any)?.clientProfileData?.userProfileId ||
+            (order as any)?.clientProfileData?.id ||
+            order.orderId
+
+          const refundValue = storedPayment.amount ?? 0
+
+          const voucherRefundService = VoucherRefundServiceFactory.create({
+            giftcardsClient: this.context.clients.giftcards,
+            ordersClient: {
+              cancelOrderInVtex: this.context.clients.orders.cancelOrderInVtex.bind(
+                this.context.clients.orders
+              ),
+            },
+            storageService: this.storageService,
+            logger: this.logger,
+          })
+
+          const voucherResult = await voucherRefundService.processVoucherRefund(
+            {
+              orderId,
+              paymentId: refund.paymentId,
+              userId: userId.toString(),
+              refundValue,
+            }
+          )
+
+          this.logger.info('PIX REFUND: Voucher generated successfully', {
+            giftCardId: voucherResult.giftCardId,
+            redemptionCode: voucherResult.redemptionCode,
+            orderId,
+            paymentId: refund.paymentId,
+          })
+
+          return Refunds.approve(refund, {
+            refundId: storedPayment.pixPaymentId,
+            code: 'BP335',
+            message: `PIX refund processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
+          })
+        } catch (voucherError) {
+          this.logger.error(
+            'PIX REFUND: Failed to generate voucher automatically',
+            voucherError,
+            {
+              paymentId: refund.paymentId,
+              orderId: storedPayment.merchantOrderId,
+            }
+          )
+
+          return Refunds.deny(refund, {
+            code: 'BP335',
+            message: `Split error detected but voucher generation failed: ${
+              voucherError instanceof Error
+                ? voucherError.message
+                : 'Unknown error'
+            }`,
+          })
+        }
+      }
 
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
 

@@ -14,6 +14,7 @@ import {
 } from './types'
 import { PaymentStatusHandler } from '../payment-status-handler'
 import { QueryPixStatusResponse } from '../../clients/braspag/types'
+import { VoucherRefundServiceFactory } from '../voucher-refund'
 
 export class BraspagPixOperationsService implements PixOperationsService {
   constructor(private readonly deps: PixOperationsServiceDependencies) {}
@@ -95,7 +96,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
           if (isSplitError) {
             this.deps.logger.warn(
-              'PIX CANCELLATION: Split transactional error detected, voucher refund required',
+              'PIX CANCELLATION: Split transactional error detected, generating voucher automatically',
               {
                 paymentId: cancellation.paymentId,
                 providerReturnCode: voidResponse.ProviderReturnCode,
@@ -104,6 +105,70 @@ export class BraspagPixOperationsService implements PixOperationsService {
                 voidSplitErrors: voidResponse.VoidSplitErrors,
               }
             )
+
+            if (this.deps.ordersClient && this.deps.giftcardsClient) {
+              try {
+                const orderId = storedPayment.merchantOrderId
+                const orderSequence = `${orderId}-01`
+                const order = await this.deps.ordersClient.getOrder(
+                  orderSequence
+                )
+
+                const userId =
+                  (order as any)?.clientProfileData?.userProfileId ||
+                  (order as any)?.clientProfileData?.id ||
+                  order.orderId
+
+                const refundValue = storedPayment.amount ?? 0
+
+                const voucherRefundService = VoucherRefundServiceFactory.create(
+                  {
+                    giftcardsClient: this.deps.giftcardsClient,
+                    ordersClient: {
+                      cancelOrderInVtex: this.deps.ordersClient.cancelOrderInVtex.bind(
+                        this.deps.ordersClient
+                      ),
+                    },
+                    storageService: this.deps.storageService,
+                    logger: this.deps.logger,
+                  }
+                )
+
+                const voucherResult = await voucherRefundService.processVoucherRefund(
+                  {
+                    orderId,
+                    paymentId: cancellation.paymentId,
+                    userId: userId.toString(),
+                    refundValue,
+                  }
+                )
+
+                this.deps.logger.info(
+                  'PIX CANCELLATION: Voucher generated successfully',
+                  {
+                    giftCardId: voucherResult.giftCardId,
+                    redemptionCode: voucherResult.redemptionCode,
+                    orderId,
+                    paymentId: cancellation.paymentId,
+                  }
+                )
+
+                return Cancellations.approve(cancellation, {
+                  cancellationId: payment.PaymentId as string,
+                  code: 'BP335',
+                  message: `PIX cancellation processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
+                })
+              } catch (voucherError) {
+                this.deps.logger.error(
+                  'PIX CANCELLATION: Failed to generate voucher automatically',
+                  voucherError,
+                  {
+                    paymentId: cancellation.paymentId,
+                    orderId: storedPayment.merchantOrderId,
+                  }
+                )
+              }
+            }
 
             const errorDetails = JSON.stringify({
               providerReturnCode: voidResponse.ProviderReturnCode,
@@ -117,15 +182,15 @@ export class BraspagPixOperationsService implements PixOperationsService {
             return Cancellations.deny(cancellation, {
               code: 'BP335',
               message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
-        })
-      }
+            })
+          }
 
           await this.deps.storageService.updatePaymentStatus(
             cancellation.paymentId,
             11
           )
 
-        return Cancellations.approve(cancellation, {
+          return Cancellations.approve(cancellation, {
             cancellationId: payment.PaymentId as string,
             code: (voidResponse.Status ?? 11).toString(),
             message: 'PIX total void requested successfully',
@@ -147,7 +212,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
           if (isSplitError) {
             this.deps.logger.warn(
-              'PIX CANCELLATION: Split transactional error detected in exception, voucher refund required',
+              'PIX CANCELLATION: Split transactional error detected in exception, generating voucher automatically',
               {
                 paymentId: cancellation.paymentId,
                 providerReturnCode: errorResponse?.ProviderReturnCode,
@@ -156,6 +221,70 @@ export class BraspagPixOperationsService implements PixOperationsService {
                 voidSplitErrors: errorResponse?.VoidSplitErrors,
               }
             )
+
+            if (this.deps.ordersClient && this.deps.giftcardsClient) {
+              try {
+                const orderId = storedPayment.merchantOrderId
+                const orderSequence = `${orderId}-01`
+                const order = await this.deps.ordersClient.getOrder(
+                  orderSequence
+                )
+
+                const userId =
+                  (order as any)?.clientProfileData?.userProfileId ||
+                  (order as any)?.clientProfileData?.id ||
+                  order.orderId
+
+                const refundValue = storedPayment.amount ?? 0
+
+                const voucherRefundService = VoucherRefundServiceFactory.create(
+                  {
+                    giftcardsClient: this.deps.giftcardsClient,
+                    ordersClient: {
+                      cancelOrderInVtex: this.deps.ordersClient.cancelOrderInVtex.bind(
+                        this.deps.ordersClient
+                      ),
+                    },
+                    storageService: this.deps.storageService,
+                    logger: this.deps.logger,
+                  }
+                )
+
+                const voucherResult = await voucherRefundService.processVoucherRefund(
+                  {
+                    orderId,
+                    paymentId: cancellation.paymentId,
+                    userId: userId.toString(),
+                    refundValue,
+                  }
+                )
+
+                this.deps.logger.info(
+                  'PIX CANCELLATION: Voucher generated successfully',
+                  {
+                    giftCardId: voucherResult.giftCardId,
+                    redemptionCode: voucherResult.redemptionCode,
+                    orderId,
+                    paymentId: cancellation.paymentId,
+                  }
+                )
+
+                return Cancellations.approve(cancellation, {
+                  cancellationId: storedPayment.pixPaymentId,
+                  code: 'BP335',
+                  message: `PIX cancellation processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
+                })
+              } catch (voucherError) {
+                this.deps.logger.error(
+                  'PIX CANCELLATION: Failed to generate voucher automatically',
+                  voucherError,
+                  {
+                    paymentId: cancellation.paymentId,
+                    orderId: storedPayment.merchantOrderId,
+                  }
+                )
+              }
+            }
 
             const errorDetails = JSON.stringify({
               providerReturnCode: errorResponse?.ProviderReturnCode,
@@ -176,14 +305,14 @@ export class BraspagPixOperationsService implements PixOperationsService {
       }
 
       // If not paid yet, cancel locally without calling Braspag void
-        await this.deps.storageService.updatePaymentStatus(
-          cancellation.paymentId,
-          10
-        )
+      await this.deps.storageService.updatePaymentStatus(
+        cancellation.paymentId,
+        10
+      )
 
-        return Cancellations.approve(cancellation, {
+      return Cancellations.approve(cancellation, {
         cancellationId: payment.PaymentId as string,
-          code: '10',
+        code: '10',
         message: 'PIX payment cancelled before confirmation',
       })
     } catch (error) {
@@ -316,6 +445,8 @@ export class PixOperationsServiceFactory {
       queryClient: params.queryClient,
       context: params.context,
       logger: params.logger,
+      ordersClient: params.ordersClient,
+      giftcardsClient: params.giftcardsClient,
     })
   }
 }
