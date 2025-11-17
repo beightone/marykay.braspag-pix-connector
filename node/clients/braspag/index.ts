@@ -160,10 +160,10 @@ export class BraspagClient extends ExternalClient {
           voidSplitErrors: response.VoidSplitErrors,
         })
       } else {
-        this.logger.info(`BRASPAG: ${operation} successful`, {
-          paymentId,
-          status: response.Status,
-        })
+      this.logger.info(`BRASPAG: ${operation} successful`, {
+        paymentId,
+        status: response.Status,
+      })
       }
 
       return response
@@ -190,10 +190,22 @@ export class BraspagClient extends ExternalClient {
         }
       }
 
-      this.logger.error(`BRASPAG: ${operation} failed`, error, {
-        paymentId,
-        statusCode,
-      })
+      if (statusCode === 404) {
+        this.logger.error(`BRASPAG: ${operation} failed - Payment not found (404)`, error, {
+          paymentId,
+          statusCode,
+          apiUrl: this.config.environment.apiUrl,
+          fullUrl: `${this.config.environment.apiUrl}/v2/sales/${paymentId}/void`,
+          environment: this.config.isProduction ? 'production' : 'sandbox',
+        })
+      } else {
+        this.logger.error(`BRASPAG: ${operation} failed`, error, {
+          paymentId,
+          statusCode,
+          apiUrl: this.config.environment.apiUrl,
+          environment: this.config.isProduction ? 'production' : 'sandbox',
+        })
+      }
       throw error
     }
   }

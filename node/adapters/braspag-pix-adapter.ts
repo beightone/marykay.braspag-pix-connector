@@ -98,11 +98,6 @@ export class BraspagPixRequestBuilder {
     const amount = this.convertToAmount()
     const splitPayments = this.createSplitPayments(config, amount)
 
-    console.dir(
-      { where: 'braspag-pix-adapter.setPayment', splitPayments },
-      { depth: null, colors: true }
-    )
-
     this.request.Payment = {
       Type: 'Pix',
       Amount: amount,

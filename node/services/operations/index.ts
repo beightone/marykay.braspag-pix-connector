@@ -117,15 +117,15 @@ export class BraspagPixOperationsService implements PixOperationsService {
             return Cancellations.deny(cancellation, {
               code: 'BP335',
               message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
-            })
-          }
+        })
+      }
 
           await this.deps.storageService.updatePaymentStatus(
             cancellation.paymentId,
             11
           )
 
-          return Cancellations.approve(cancellation, {
+        return Cancellations.approve(cancellation, {
             cancellationId: payment.PaymentId as string,
             code: (voidResponse.Status ?? 11).toString(),
             message: 'PIX total void requested successfully',
@@ -176,14 +176,14 @@ export class BraspagPixOperationsService implements PixOperationsService {
       }
 
       // If not paid yet, cancel locally without calling Braspag void
-      await this.deps.storageService.updatePaymentStatus(
-        cancellation.paymentId,
-        10
-      )
+        await this.deps.storageService.updatePaymentStatus(
+          cancellation.paymentId,
+          10
+        )
 
-      return Cancellations.approve(cancellation, {
+        return Cancellations.approve(cancellation, {
         cancellationId: payment.PaymentId as string,
-        code: '10',
+          code: '10',
         message: 'PIX payment cancelled before confirmation',
       })
     } catch (error) {
