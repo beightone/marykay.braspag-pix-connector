@@ -50,23 +50,12 @@ export class BraspagClient extends ExternalClient {
       this.http,
       this.logger
     )
-
-    this.logger.info('BRASPAG: Client initialized', {
-      merchantId: credentials.merchantId,
-      environment: isProduction ? 'production' : 'sandbox',
-      apiUrl: this.config.environment.apiUrl,
-    })
   }
 
   public async createPixSale(
     payload: CreatePixSaleRequest
   ): Promise<CreatePixSaleResponse> {
-    const operation = 'CREATE_PIX_SALE'
-
-    this.logger.info(`BRASPAG: Starting ${operation}`, { payload })
-
     try {
-      // await this.authenticator.getAccessToken()
       const headers = this.authenticator.getAuthHeaders()
 
       const response = await this.http.post<CreatePixSaleResponse>(
@@ -75,7 +64,9 @@ export class BraspagClient extends ExternalClient {
         { headers }
       )
 
-      this.logger.info(`BRASPAG: ${operation} successful`, {
+      this.logger.info('[BRASPAG] PIX sale created', {
+        flow: 'braspag_api',
+        action: 'pix_sale_created',
         merchantOrderId: payload.MerchantOrderId,
         paymentId: response.Payment?.PaymentId,
         status: response.Payment?.Status,
@@ -83,8 +74,11 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error(`BRASPAG: ${operation} failed`, error, {
+      this.logger.error('[BRASPAG] PIX sale creation failed', {
+        flow: 'braspag_api',
+        action: 'pix_sale_creation_failed',
         merchantOrderId: payload.MerchantOrderId,
+        error: error instanceof Error ? error.message : String(error),
       })
 
       throw error
@@ -94,10 +88,6 @@ export class BraspagClient extends ExternalClient {
   public async queryPixPaymentStatus(
     paymentId: string
   ): Promise<QueryPixStatusResponse> {
-    const operation = 'QUERY_PIX_STATUS'
-
-    this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
-
     try {
       const headers = this.authenticator.getAuthHeaders()
       const queryApiUrl = 'https://apiquery.braspag.com.br'
@@ -107,9 +97,9 @@ export class BraspagClient extends ExternalClient {
         headers,
       })
 
-      console.log('BRASPAG: Response', response)
-
-      this.logger.info(`BRASPAG: ${operation} successful`, {
+      this.logger.info('[BRASPAG] Payment status queried', {
+        flow: 'braspag_api',
+        action: 'payment_status_queried',
         paymentId,
         status: response.Payment?.Status,
       })
@@ -119,25 +109,27 @@ export class BraspagClient extends ExternalClient {
       const statusCode = error?.response?.status
 
       if (statusCode === 404) {
-        this.logger.warn(`BRASPAG: ${operation} - Payment not found`, {
+        this.logger.warn('[BRASPAG] Payment not found', {
+          flow: 'braspag_api',
+          action: 'payment_not_found',
           paymentId,
           statusCode,
         })
         throw new Error(`Payment ${paymentId} not found in Braspag`)
       }
 
-      this.logger.error(`BRASPAG: ${operation} failed`, error, {
+      this.logger.error('[BRASPAG] Payment status query failed', {
+        flow: 'braspag_api',
+        action: 'payment_status_query_failed',
         paymentId,
         statusCode,
+        error: error instanceof Error ? error.message : String(error),
       })
       throw error
     }
   }
 
   public async voidPixPayment(paymentId: string): Promise<VoidPixResponse> {
-    const operation = 'VOID_PIX_PAYMENT'
-
-    this.logger.info(`BRASPAG: Starting ${operation}`, { paymentId })
     try {
       const headers = this.authenticator.getAuthHeaders()
       const response = await this.http.put<VoidPixResponse>(
@@ -152,18 +144,21 @@ export class BraspagClient extends ExternalClient {
         response.ReasonMessage === 'SplitTransactionalError'
 
       if (isSplitError) {
-        this.logger.warn(`BRASPAG: ${operation} returned split error`, {
+        this.logger.warn('[BRASPAG] Void returned split error', {
+          flow: 'braspag_api',
+          action: 'void_split_error',
           paymentId,
           providerReturnCode: response.ProviderReturnCode,
           reasonCode: response.ReasonCode,
           reasonMessage: response.ReasonMessage,
-          voidSplitErrors: response.VoidSplitErrors,
         })
       } else {
-      this.logger.info(`BRASPAG: ${operation} successful`, {
-        paymentId,
-        status: response.Status,
-      })
+        this.logger.info('[BRASPAG] Payment voided successfully', {
+          flow: 'braspag_api',
+          action: 'payment_voided',
+          paymentId,
+          status: response.Status,
+        })
       }
 
       return response
@@ -178,34 +173,27 @@ export class BraspagClient extends ExternalClient {
           errorData.ReasonMessage === 'SplitTransactionalError'
 
         if (isSplitError) {
-          this.logger.warn(`BRASPAG: ${operation} failed with split error`, {
+          this.logger.warn('[BRASPAG] Void failed with split error', {
+            flow: 'braspag_api',
+            action: 'void_split_error_exception',
             paymentId,
             providerReturnCode: errorData.ProviderReturnCode,
             reasonCode: errorData.ReasonCode,
             reasonMessage: errorData.ReasonMessage,
-            voidSplitErrors: errorData.VoidSplitErrors,
           })
 
           return errorData
         }
       }
 
-      if (statusCode === 404) {
-        this.logger.error(`BRASPAG: ${operation} failed - Payment not found (404)`, error, {
-          paymentId,
-          statusCode,
-          apiUrl: this.config.environment.apiUrl,
-          fullUrl: `${this.config.environment.apiUrl}/v2/sales/${paymentId}/void`,
-          environment: this.config.isProduction ? 'production' : 'sandbox',
-        })
-      } else {
-        this.logger.error(`BRASPAG: ${operation} failed`, error, {
-          paymentId,
-          statusCode,
-          apiUrl: this.config.environment.apiUrl,
-          environment: this.config.isProduction ? 'production' : 'sandbox',
-        })
-      }
+      this.logger.error('[BRASPAG] Void payment failed', {
+        flow: 'braspag_api',
+        action: 'void_payment_failed',
+        paymentId,
+        statusCode,
+        error: error instanceof Error ? error.message : String(error),
+      })
+
       throw error
     }
   }

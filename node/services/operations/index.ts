@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   CancellationRequest,
   CancellationResponse,
@@ -27,13 +28,28 @@ export class BraspagPixOperationsService implements PixOperationsService {
         cancellation.paymentId
       )
 
-      this.deps.logger.info('PIX CANCELLATION: Stored payment', {
-        storedPayment,
-      })
-
       if (!storedPayment || storedPayment.type !== 'pix') {
+        this.deps.logger.warn(
+          '[PIX_CANCEL] Payment not found or invalid type',
+          {
+            flow: 'cancellation',
+            action: 'payment_validation_failed',
+            paymentId: cancellation.paymentId,
+            paymentFound: !!storedPayment,
+            paymentType: storedPayment?.type,
+          }
+        )
+
         throw new Error('PIX payment not found or invalid payment type')
       }
+
+      this.deps.logger.info('[PIX_CANCEL] Starting cancellation process', {
+        flow: 'cancellation',
+        action: 'cancellation_started',
+        paymentId: cancellation.paymentId,
+        pixPaymentId: storedPayment.pixPaymentId,
+        amount: storedPayment.amount,
+      })
 
       const merchantSettings = this.getMerchantSettings(cancellation)
       const braspagClient = this.deps.clientFactory.createClient(
@@ -50,8 +66,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
       } catch (error) {
         if (error?.message?.includes('not found')) {
           this.deps.logger.warn(
-            'Payment not found in Braspag before cancel, attempting void anyway',
+            '[PIX_CANCEL] Payment not found in Braspag, attempting void anyway',
             {
+              flow: 'cancellation',
+              action: 'payment_not_found_in_braspag',
               paymentId: cancellation.paymentId,
               pixPaymentId: storedPayment.pixPaymentId,
             }
@@ -73,8 +91,15 @@ export class BraspagPixOperationsService implements PixOperationsService {
           },
         } as any)
 
-      // If already refunded/voided
       if (currentStatus === 11) {
+        this.deps.logger.info('[PIX_CANCEL] Payment already refunded', {
+          flow: 'cancellation',
+          action: 'already_refunded',
+          paymentId: cancellation.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          status: currentStatus,
+        })
+
         return Cancellations.approve(cancellation, {
           cancellationId: payment.PaymentId as string,
           code: '11',
@@ -96,20 +121,25 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
           if (isSplitError) {
             this.deps.logger.warn(
-              'PIX CANCELLATION: Split transactional error detected, generating voucher automatically',
+              '[PIX_CANCEL] Split error detected, triggering voucher generation',
               {
+                flow: 'cancellation',
+                action: 'split_error_detected',
                 paymentId: cancellation.paymentId,
+                pixPaymentId: storedPayment.pixPaymentId,
                 providerReturnCode: voidResponse.ProviderReturnCode,
                 reasonCode: voidResponse.ReasonCode,
                 reasonMessage: voidResponse.ReasonMessage,
-                voidSplitErrors: voidResponse.VoidSplitErrors,
               }
             )
 
             if (this.deps.ordersClient && this.deps.giftcardsClient) {
               try {
-                const orderId = storedPayment.merchantOrderId
+                const orderId =
+                  storedPayment.orderId ?? storedPayment.merchantOrderId
+
                 const orderSequence = `${orderId}-01`
+
                 const order = await this.deps.ordersClient.getOrder(
                   orderSequence
                 )
@@ -144,19 +174,22 @@ export class BraspagPixOperationsService implements PixOperationsService {
                 )
 
                 this.deps.logger.info(
-                  'PIX CANCELLATION: Voucher generated successfully',
+                  '[PIX_CANCEL] Voucher generated successfully',
                   {
+                    flow: 'cancellation',
+                    action: 'voucher_generated',
+                    paymentId: cancellation.paymentId,
+                    orderId,
                     giftCardId: voucherResult.giftCardId,
                     redemptionCode: voucherResult.redemptionCode,
-                    orderId,
-                    paymentId: cancellation.paymentId,
+                    refundValue,
                   }
                 )
 
                 return Cancellations.approve(cancellation, {
                   cancellationId: payment.PaymentId as string,
                   code: 'BP335',
-                  message: `PIX cancellation processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
+                  message: `Seu pedido foi cancleado! Voucher criado: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
                 })
               } catch (voucherError) {
                 this.deps.logger.error(
@@ -164,7 +197,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
                   voucherError,
                   {
                     paymentId: cancellation.paymentId,
-                    orderId: storedPayment.merchantOrderId,
+                    orderId:
+                      storedPayment.orderId ?? storedPayment.merchantOrderId,
                   }
                 )
               }
@@ -212,20 +246,25 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
           if (isSplitError) {
             this.deps.logger.warn(
-              'PIX CANCELLATION: Split transactional error detected in exception, generating voucher automatically',
+              '[PIX_CANCEL] Split error detected in exception, triggering voucher generation',
               {
+                flow: 'cancellation',
+                action: 'split_error_in_exception',
                 paymentId: cancellation.paymentId,
+                pixPaymentId: storedPayment.pixPaymentId,
                 providerReturnCode: errorResponse?.ProviderReturnCode,
                 reasonCode: errorResponse?.ReasonCode,
                 reasonMessage: errorResponse?.ReasonMessage,
-                voidSplitErrors: errorResponse?.VoidSplitErrors,
               }
             )
 
             if (this.deps.ordersClient && this.deps.giftcardsClient) {
               try {
-                const orderId = storedPayment.merchantOrderId
+                const orderId =
+                  storedPayment.orderId ?? storedPayment.merchantOrderId
+
                 const orderSequence = `${orderId}-01`
+
                 const order = await this.deps.ordersClient.getOrder(
                   orderSequence
                 )
@@ -260,12 +299,15 @@ export class BraspagPixOperationsService implements PixOperationsService {
                 )
 
                 this.deps.logger.info(
-                  'PIX CANCELLATION: Voucher generated successfully',
+                  '[PIX_CANCEL] Voucher generated successfully (exception handler)',
                   {
+                    flow: 'cancellation',
+                    action: 'voucher_generated_from_exception',
+                    paymentId: cancellation.paymentId,
+                    orderId,
                     giftCardId: voucherResult.giftCardId,
                     redemptionCode: voucherResult.redemptionCode,
-                    orderId,
-                    paymentId: cancellation.paymentId,
+                    refundValue,
                   }
                 )
 
@@ -276,11 +318,17 @@ export class BraspagPixOperationsService implements PixOperationsService {
                 })
               } catch (voucherError) {
                 this.deps.logger.error(
-                  'PIX CANCELLATION: Failed to generate voucher automatically',
-                  voucherError,
+                  '[PIX_CANCEL] Voucher generation failed (exception handler)',
                   {
+                    flow: 'cancellation',
+                    action: 'voucher_generation_failed_from_exception',
                     paymentId: cancellation.paymentId,
-                    orderId: storedPayment.merchantOrderId,
+                    orderId:
+                      storedPayment.orderId ?? storedPayment.merchantOrderId,
+                    error:
+                      voucherError instanceof Error
+                        ? voucherError.message
+                        : String(voucherError),
                   }
                 )
               }
@@ -304,10 +352,20 @@ export class BraspagPixOperationsService implements PixOperationsService {
         }
       }
 
-      // If not paid yet, cancel locally without calling Braspag void
       await this.deps.storageService.updatePaymentStatus(
         cancellation.paymentId,
         10
+      )
+
+      this.deps.logger.info(
+        '[PIX_CANCEL] Payment cancelled before confirmation',
+        {
+          flow: 'cancellation',
+          action: 'cancelled_before_payment',
+          paymentId: cancellation.paymentId,
+          pixPaymentId: payment.PaymentId,
+          status: currentStatus,
+        }
       )
 
       return Cancellations.approve(cancellation, {
@@ -316,7 +374,12 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: 'PIX payment cancelled before confirmation',
       })
     } catch (error) {
-      this.deps.logger.error('PIX cancellation failed', error)
+      this.deps.logger.error('[PIX_CANCEL] Cancellation failed', {
+        flow: 'cancellation',
+        action: 'cancellation_error',
+        paymentId: cancellation.paymentId,
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       return Cancellations.deny(cancellation, {
         code: 'ERROR',
@@ -330,31 +393,33 @@ export class BraspagPixOperationsService implements PixOperationsService {
   public async settlePayment(
     settlement: SettlementRequest
   ): Promise<SettlementResponse> {
-    this.deps.logger.info('VTEX_SETTLEMENT: Processing settlement request', {
-      paymentId: settlement.paymentId,
-      value: settlement.value,
-      tid: settlement.tid,
-    })
-
     try {
       const { paymentId } = settlement
-
-      this.deps.logger.info('VTEX_SETTLEMENT: Getting stored payment', {
-        paymentId,
-      })
 
       const storedPayment = await this.deps.storageService.getStoredPayment(
         paymentId
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
+        this.deps.logger.warn(
+          '[PIX_SETTLE] Payment not found or invalid type',
+          {
+            flow: 'settlement',
+            action: 'payment_validation_failed',
+            paymentId,
+            paymentFound: !!storedPayment,
+            paymentType: storedPayment?.type,
+          }
+        )
+
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      this.deps.logger.info('VTEX_SETTLEMENT: Stored payment found', {
+      this.deps.logger.info('[PIX_SETTLE] Starting settlement process', {
+        flow: 'settlement',
+        action: 'settlement_validation',
         paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
-        braspagTransactionId: storedPayment.braspagTransactionId,
         amount: storedPayment.amount,
         status: storedPayment.status,
       })
@@ -364,17 +429,16 @@ export class BraspagPixOperationsService implements PixOperationsService {
       )
 
       if (statusInfo.canSettle) {
-        this.deps.logger.info('VTEX_SETTLEMENT: Payment can be settled', {
+        this.deps.logger.info('[PIX_SETTLE] Settlement approved', {
+          flow: 'settlement',
+          action: 'settlement_approved',
           paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
           status: storedPayment.status,
           statusDescription: statusInfo.statusDescription,
-        })
-
-        this.deps.logger.info('Mary Kay PIX settlement processed', {
-          paymentId,
           consultantSplitAmount: storedPayment.consultantSplitAmount,
           masterSplitAmount: storedPayment.masterSplitAmount,
-          splitPayments: storedPayment.splitPayments,
+          hasSplitPayments: !!storedPayment.splitPayments,
         })
 
         return Settlements.approve(settlement, {
@@ -384,7 +448,9 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      this.deps.logger.warn('VTEX_SETTLEMENT: Payment cannot be settled', {
+      this.deps.logger.warn('[PIX_SETTLE] Payment cannot be settled', {
+        flow: 'settlement',
+        action: 'settlement_denied',
         paymentId,
         status: storedPayment.status,
         statusDescription: statusInfo.statusDescription,
@@ -395,11 +461,12 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {
-      this.deps.logger.error('VTEX_SETTLEMENT: Settlement failed', error, {
+      this.deps.logger.error('[PIX_SETTLE] Settlement failed', {
+        flow: 'settlement',
+        action: 'settlement_error',
         paymentId: settlement.paymentId,
+        error: error instanceof Error ? error.message : String(error),
       })
-
-      this.deps.logger.error('PIX settlement failed', error)
 
       return Settlements.deny(settlement, {
         code: 'ERROR',
@@ -422,15 +489,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       paymentId: request.paymentId,
     }
 
-    const settings = this.deps.configService.getMerchantSettings(authData)
-
-    this.deps.logger.info('Merchant settings extracted for operation', {
-      merchantId: settings.merchantId,
-      hasClientSecret: !!settings.clientSecret,
-      hasMerchantKey: !!settings.merchantKey,
-    })
-
-    return settings
+    return this.deps.configService.getMerchantSettings(authData)
   }
 }
 

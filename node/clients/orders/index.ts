@@ -28,7 +28,7 @@ export class OMSClient extends OMS {
   }
 
   public async cancelOrderInVtex(orderId: string, reason?: string): Promise<void> {
-    const cancelReason = reason || 'Reembolso via voucher'
+    const cancelReason = reason ?? 'Reembolso via voucher'
     const startTime = Date.now()
 
     console.log('OMS_CLIENT: Cancelling order in VTEX', {

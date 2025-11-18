@@ -14,7 +14,7 @@ interface RefundVoucherResponse {
 
 export class GiftcardsClient extends ExternalClient {
   constructor(ctx: IOContext, opts?: InstanceOptions) {
-    super(`http://${ctx.account}.vtex.local`, ctx, {
+    super(`http://${ctx.workspace}--${ctx.account}.myvtex.com`, ctx, {
       ...opts,
       headers: {
         'Content-Type': 'application/json',

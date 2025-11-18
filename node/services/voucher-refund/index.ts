@@ -13,52 +13,42 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
     request: VoucherRefundRequest
   ): Promise<VoucherRefundResponse> {
     const { orderId, paymentId, userId, refundValue } = request
-    const startTime = Date.now()
 
-    this.deps.logger.info('VOUCHER_REFUND: ===== START PROCESS =====', {
+    this.deps.logger.info('[VOUCHER] Starting voucher refund process', {
+      flow: 'voucher_refund',
+      action: 'refund_started',
       orderId,
       paymentId,
       userId,
       refundValue,
-      timestamp: new Date().toISOString(),
     })
 
-    this.deps.logger.info('VOUCHER_REFUND: Step 1/5 - Fetching payment from storage', {
-      paymentId,
-    })
+    const storedPayment = await this.deps.storageService.getStoredPayment(
+      paymentId
+    )
 
-    const storedPayment = await this.deps.storageService.getStoredPayment(paymentId)
-    
     if (!storedPayment) {
-      this.deps.logger.error('VOUCHER_REFUND: Payment not found in storage', {
+      this.deps.logger.error('[VOUCHER] Payment not found in storage', {
+        flow: 'voucher_refund',
+        action: 'payment_not_found',
         paymentId,
-        duration: Date.now() - startTime,
       })
       throw new Error(`Payment ${paymentId} not found`)
     }
 
-    this.deps.logger.info('VOUCHER_REFUND: Payment found in storage', {
-      paymentId,
-      type: storedPayment.type,
-      status: storedPayment.status,
-      amount: storedPayment.amount,
-      merchantOrderId: storedPayment.merchantOrderId,
-      pixPaymentId: storedPayment.pixPaymentId,
-      hasCallbackUrl: !!storedPayment.callbackUrl,
-    })
-
     if (storedPayment.type !== 'pix') {
-      this.deps.logger.error('VOUCHER_REFUND: Invalid payment type', {
+      this.deps.logger.error('[VOUCHER] Invalid payment type', {
+        flow: 'voucher_refund',
+        action: 'invalid_payment_type',
         paymentId,
         expectedType: 'pix',
         actualType: storedPayment.type,
-        duration: Date.now() - startTime,
       })
       throw new Error(`Payment ${paymentId} is not a PIX payment`)
     }
 
     const payment: StoredPaymentData = {
-      paymentId: storedPayment.vtexPaymentId || paymentId,
+      paymentId: storedPayment.vtexPaymentId ?? paymentId,
       orderId: storedPayment.merchantOrderId,
       amount: storedPayment.amount ?? 0,
       status: storedPayment.status ?? 0,
@@ -66,26 +56,12 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
       callbackUrl: storedPayment.callbackUrl,
     }
 
-    this.deps.logger.info('VOUCHER_REFUND: Payment data mapped', {
-      paymentId: payment.paymentId,
-      orderId: payment.orderId,
-      amount: payment.amount,
-      status: payment.status,
-      braspagPaymentId: payment.braspagPaymentId,
-    })
-
-    this.deps.logger.info('VOUCHER_REFUND: Step 2/5 - Validating payment status', {
-      currentStatus: payment.status,
-      isRefunded: payment.status === 11,
-      isCancelled: payment.status === 10,
-    })
-
     if (payment.status === 11 || payment.status === 10) {
-      this.deps.logger.warn('VOUCHER_REFUND: Payment already refunded/cancelled', {
+      this.deps.logger.warn('[VOUCHER] Payment already refunded/cancelled', {
+        flow: 'voucher_refund',
+        action: 'payment_already_refunded',
         paymentId,
-        currentStatus: payment.status,
-        statusName: payment.status === 11 ? 'Refunded' : 'Cancelled',
-        duration: Date.now() - startTime,
+        status: payment.status,
       })
 
       return {
@@ -98,19 +74,13 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
       }
     }
 
-    this.deps.logger.info('VOUCHER_REFUND: Step 3/5 - Validating refund amount', {
-      refundValue,
-      paymentAmount: payment.amount,
-      isValid: refundValue <= payment.amount,
-    })
-
     if (refundValue > payment.amount) {
-      this.deps.logger.error('VOUCHER_REFUND: Refund value exceeds payment amount', {
+      this.deps.logger.error('[VOUCHER] Refund value exceeds payment amount', {
+        flow: 'voucher_refund',
+        action: 'invalid_refund_amount',
         paymentId,
         refundValue,
         paymentAmount: payment.amount,
-        difference: refundValue - payment.amount,
-        duration: Date.now() - startTime,
       })
       throw new Error(
         `Refund value (${refundValue}) exceeds payment amount (${payment.amount})`
@@ -118,74 +88,51 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
     }
 
     try {
-      this.deps.logger.info('VOUCHER_REFUND: Step 4/5 - Creating giftcard via giftcards app', {
-        userId,
-        refundValue,
-        orderId,
-        giftcardsEndpoint: '/_v/refund',
-      })
+      const giftcardResult = await this.deps.giftcardsClient.createRefundVoucher(
+        {
+          userId,
+          refundValue,
+          orderId,
+        }
+      )
 
-      const giftcardStartTime = Date.now()
-      const giftcardResult = await this.deps.giftcardsClient.createRefundVoucher({
-        userId,
-        refundValue,
+      this.deps.logger.info('[VOUCHER] Giftcard created successfully', {
+        flow: 'voucher_refund',
+        action: 'giftcard_created',
         orderId,
-      })
-      const giftcardDuration = Date.now() - giftcardStartTime
-
-      this.deps.logger.info('VOUCHER_REFUND: Giftcard created successfully', {
+        paymentId,
         giftCardId: giftcardResult.giftCardId,
         redemptionCode: giftcardResult.redemptionCode,
-        duration: giftcardDuration,
-        userId,
         refundValue,
-        orderId,
-      })
-
-      this.deps.logger.info('VOUCHER_REFUND: Step 5/5 - Cancelling order in VTEX OMS', {
-        orderId,
-        reason: 'Reembolso via voucher - Gift card criado',
-        omsEndpoint: `/api/oms/pvt/orders/${orderId}/cancel`,
       })
 
       try {
-        const cancelStartTime = Date.now()
         await this.deps.ordersClient.cancelOrderInVtex(
           orderId,
           'Reembolso via voucher - Gift card criado'
         )
-        const cancelDuration = Date.now() - cancelStartTime
 
-        this.deps.logger.info('VOUCHER_REFUND: Order cancelled successfully in VTEX', {
+        this.deps.logger.info('[VOUCHER] Order cancelled successfully', {
+          flow: 'voucher_refund',
+          action: 'order_cancelled',
           orderId,
-          duration: cancelDuration,
         })
       } catch (cancelError) {
-        const cancelErrorMsg = cancelError instanceof Error ? cancelError.message : String(cancelError)
-        const cancelErrorStack = cancelError instanceof Error ? cancelError.stack : undefined
-
-        this.deps.logger.warn('VOUCHER_REFUND: Failed to cancel order in VTEX (non-blocking)', {
-          orderId,
-          error: cancelErrorMsg,
-          stack: cancelErrorStack,
-          note: 'Giftcard was created successfully, but order cancellation failed',
-        })
+        this.deps.logger.warn(
+          '[VOUCHER] Order cancellation failed (non-blocking)',
+          {
+            flow: 'voucher_refund',
+            action: 'order_cancellation_failed',
+            orderId,
+            error:
+              cancelError instanceof Error
+                ? cancelError.message
+                : String(cancelError),
+          }
+        )
       }
 
-      this.deps.logger.info('VOUCHER_REFUND: Updating payment status to 11 (Refunded)', {
-        paymentId,
-        oldStatus: payment.status,
-        newStatus: 11,
-      })
-
       await this.deps.storageService.updatePaymentStatus(paymentId, 11)
-
-      this.deps.logger.info('VOUCHER_REFUND: Payment status updated successfully', {
-        paymentId,
-        status: 11,
-      })
-
-      const totalDuration = Date.now() - startTime
 
       const result: VoucherRefundResponse = {
         success: true,
@@ -196,34 +143,26 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
         message: 'Voucher refund processed successfully',
       }
 
-      this.deps.logger.info('VOUCHER_REFUND: ===== END PROCESS (SUCCESS) =====', {
-        result,
-        totalDuration,
-        giftCardId: result.giftCardId,
-        redemptionCode: result.redemptionCode,
+      this.deps.logger.info('[VOUCHER] Voucher refund completed successfully', {
+        flow: 'voucher_refund',
+        action: 'refund_completed',
         orderId,
         paymentId,
+        giftCardId: result.giftCardId,
+        redemptionCode: result.redemptionCode,
+        refundValue,
       })
 
       return result
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      const errorStack = error instanceof Error ? error.stack : undefined
-
-      this.deps.logger.error('VOUCHER_REFUND: Error during process', {
-        error: errorMsg,
-        stack: errorStack,
-        step: 'Creating giftcard or updating status',
-        userId,
+      this.deps.logger.error('[VOUCHER] Voucher refund failed', {
+        flow: 'voucher_refund',
+        action: 'refund_failed',
         orderId,
         paymentId,
+        userId,
         refundValue,
-        duration: Date.now() - startTime,
-      })
-
-      this.deps.logger.info('VOUCHER_REFUND: ===== END PROCESS (ERROR) =====', {
-        error: errorMsg,
-        duration: Date.now() - startTime,
+        error: error instanceof Error ? error.message : String(error),
       })
 
       throw error
@@ -232,8 +171,7 @@ export class VoucherRefundServiceImpl implements VoucherRefundService {
 }
 
 export class VoucherRefundServiceFactory {
-  static create(deps: VoucherRefundServiceDeps): VoucherRefundService {
+  public static create(deps: VoucherRefundServiceDeps): VoucherRefundService {
     return new VoucherRefundServiceImpl(deps)
   }
 }
-
