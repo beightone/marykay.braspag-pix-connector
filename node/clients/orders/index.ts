@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { OMS } from '@vtex/clients'
 import type { InstanceOptions, IOContext } from '@vtex/api'
 import type { AuthMethod, OrderDetailResponse } from '@vtex/clients'
@@ -24,6 +25,51 @@ export class OMSClient extends OMS {
 
   public async getOrder(id: string): Promise<OrderDetailResponse> {
     return this.order(id, this.defaultAuthMethod)
+  }
+
+  public async cancelOrderInVtex(orderId: string, reason?: string): Promise<void> {
+    const cancelReason = reason ?? 'Reembolso via voucher'
+    const startTime = Date.now()
+
+    console.log('OMS_CLIENT: Cancelling order in VTEX', {
+      orderId,
+      reason: cancelReason,
+      endpoint: `/api/oms/pvt/orders/${orderId}/cancel`,
+      timestamp: new Date().toISOString(),
+    })
+
+    try {
+      await this.http.post(
+        `/api/oms/pvt/orders/${orderId}/cancel`,
+        { reason: cancelReason },
+        {
+          metric: 'oms-cancel-order',
+          timeout: 10000,
+        }
+      )
+
+      const duration = Date.now() - startTime
+
+      console.log('OMS_CLIENT: Order cancelled successfully', {
+        orderId,
+        reason: cancelReason,
+        duration,
+      })
+    } catch (error) {
+      const duration = Date.now() - startTime
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      const errorStack = error instanceof Error ? error.stack : undefined
+
+      console.error('OMS_CLIENT: Failed to cancel order', {
+        error: errorMsg,
+        stack: errorStack,
+        orderId,
+        reason: cancelReason,
+        duration,
+      })
+
+      throw error
+    }
   }
 
   public async extractOrderData(
@@ -78,18 +124,43 @@ export class OMSClient extends OMS {
 
     let braspagId: string | undefined
 
-    if (consultantId && hublyConfig?.apiKey) {
+    if (consultantId) {
       try {
+        const apiKey = hublyConfig?.apiKey
+        const organizationId = hublyConfig?.organizationId
+
+        console.log('HUBLY: Fetching consultant data', {
+          consultantId,
+          organizationId,
+          hasApiKey: !!apiKey,
+          willUseDefaults: !apiKey,
+        })
+
         const consultantData = await this.hublyClient.getConsultantData(
           consultantId,
-          hublyConfig.apiKey,
-          hublyConfig.organizationId
+          apiKey,
+          organizationId
         )
 
+        console.log('HUBLY: Consultant data received', {
+          consultantId,
+          additionalInfoCount: consultantData.additionalInfo?.length ?? 0,
+        })
+
         braspagId = this.hublyClient.getBraspagIdFromConsultant(consultantData)
+
+        console.log('HUBLY: Braspag ID extracted', {
+          consultantId,
+          braspagId,
+        })
       } catch (error) {
-        console.error('Failed to fetch consultant data from Hubly', error)
+        console.error('HUBLY: Failed to fetch consultant data', {
+          consultantId,
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
+    } else {
+      console.log('HUBLY: Skipping fetch - missing consultantId')
     }
 
     return {

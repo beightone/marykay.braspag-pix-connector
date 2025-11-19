@@ -215,6 +215,28 @@ export class BraspagNotificationHandler implements NotificationHandler {
       }
     }
 
+    // Idempotency check: skip if status hasn't actually changed
+    const finalEffectiveStatus = effectiveStatus ?? storedPayment.status
+    const finalEffectiveAmount = effectiveAmount ?? storedPayment.amount
+    const statusChanged = finalEffectiveStatus !== storedPayment.status
+    const amountChanged =
+      finalEffectiveAmount !== undefined &&
+      finalEffectiveAmount !== storedPayment.amount
+
+    if (!statusChanged && !amountChanged) {
+      this.logger.info('BRASPAG: Status and amount unchanged, skipping update', {
+        paymentId,
+        currentStatus: storedPayment.status,
+        currentAmount: storedPayment.amount,
+        notificationStatus: effectiveStatus,
+        notificationAmount: effectiveAmount,
+        statusChanged,
+        amountChanged,
+      })
+
+      return
+    }
+
     // Update stored payment status
     const updatedPayment: StoredBraspagPayment = {
       ...storedPayment,
@@ -259,12 +281,25 @@ export class BraspagNotificationHandler implements NotificationHandler {
       })
     }
 
-    // Trigger VTEX retry callback to fetch current status (PPF async flow)
-    if (storedPayment.callbackUrl && context.clients.retry?.ping) {
+    // Trigger VTEX retry callback only if status actually changed and not a final status
+    const isFinalStatus =
+      effectiveStatus === BRASPAG_STATUS.REFUNDED ||
+      effectiveStatus === BRASPAG_STATUS.VOIDED ||
+      effectiveStatus === BRASPAG_STATUS.DENIED ||
+      effectiveStatus === BRASPAG_STATUS.ABORTED
+
+    if (
+      statusChanged &&
+      !isFinalStatus &&
+      storedPayment.callbackUrl &&
+      context.clients.retry?.ping
+    ) {
       try {
         this.logger.info('VTEX_RETRY: Pinging callbackUrl', {
           paymentId,
           callbackUrl: storedPayment.callbackUrl,
+          statusChanged: true,
+          effectiveStatus,
         })
         await context.clients.retry.ping(storedPayment.callbackUrl)
         this.logger.info('VTEX_RETRY: Callback ping sent', { paymentId })
@@ -274,6 +309,24 @@ export class BraspagNotificationHandler implements NotificationHandler {
           error: error instanceof Error ? error.message : String(error),
         })
       }
+    } else if (!statusChanged) {
+      this.logger.info('VTEX_RETRY: Skipping ping - status unchanged', {
+        paymentId,
+        currentStatus: storedPayment.status,
+      })
+    } else if (isFinalStatus) {
+      this.logger.info('VTEX_RETRY: Skipping ping - final status reached', {
+        paymentId,
+        effectiveStatus,
+        statusName:
+          effectiveStatus === BRASPAG_STATUS.REFUNDED
+            ? 'REFUNDED'
+            : effectiveStatus === BRASPAG_STATUS.VOIDED
+            ? 'VOIDED'
+            : effectiveStatus === BRASPAG_STATUS.DENIED
+            ? 'DENIED'
+            : 'ABORTED',
+      })
     }
 
     // Process for PAID status

@@ -12,3 +12,4 @@ export {
   VBasePaymentStorageService,
   PaymentStorageServiceFactory,
 } from './payment-storage'
+export { VoucherRefundServiceFactory } from './voucher-refund'

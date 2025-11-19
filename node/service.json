@@ -17,6 +17,10 @@
     "pixSplits": {
       "path": "/_v/pix-connector/splits/:paymentId",
       "public": true
+    },
+    "voucherRefund": {
+      "path": "/_v/pix-connector/refund/voucher",
+      "public": true
     }
   }
 }

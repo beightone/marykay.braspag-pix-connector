@@ -263,3 +263,4 @@ paket-files/
 *.ncrunchsolution
 *.ncrunchproject
 
+*.DS_Store

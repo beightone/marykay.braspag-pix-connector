@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable no-console */
 import {
   AuthorizationRequest,
@@ -16,6 +15,7 @@ import {
   Settlements,
   Authorizations,
 } from '@vtex/payment-provider'
+import { ServiceContext } from '@vtex/api'
 
 import { randomString } from './utils'
 import { executeAuthorization } from './flow'
@@ -28,6 +28,7 @@ import {
   PaymentStorageServiceFactory,
   NotificationService,
   BraspagNotificationHandler,
+  VoucherRefundServiceFactory,
 } from './services'
 import { PixAuthorizationServiceFactory } from './services/authorization'
 import { PixAuthorizationService } from './services/authorization/types'
@@ -53,7 +54,9 @@ export default class BraspagConnector extends PaymentProvider<
 
   private readonly notificationService: NotificationService
 
-  constructor(context: any) {
+  constructor(
+    context: ServiceContext<Clients, PaymentProviderState, CustomContextFields>
+  ) {
     super(context)
     this.datadogLogger = new Logger(
       this.context as Context,
@@ -79,16 +82,24 @@ export default class BraspagConnector extends PaymentProvider<
       configService: this.configService,
       storageService: this.storageService,
       clientFactory: braspagClientFactory,
+      queryClient: this.context.clients.braspagQuery,
       context: this.context.vtex,
       logger: this.logger,
+      ordersClient: {
+        getOrder: this.context.clients.orders.getOrder.bind(
+          this.context.clients.orders
+        ),
+        cancelOrderInVtex: this.context.clients.orders.cancelOrderInVtex.bind(
+          this.context.clients.orders
+        ),
+      },
+      giftcardsClient: this.context.clients.giftcards,
     })
   }
 
   public async authorize(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
-    this.logger.info('AUTHORIZE: Received request', { authorization })
-
     if (this.isTestSuite) {
       const persisted = (await this.context.clients.vbase.getJSON(
         'authorizations',
@@ -107,15 +118,12 @@ export default class BraspagConnector extends PaymentProvider<
           response
         )
 
-        this.logger.info('Attempting callback to Test Suite...', {})
         try {
           this.callback(authorization, response)
-          this.logger.info('Callback successful', {})
         } catch (error) {
-          this.logger.warn(
-            'Callback failed (TLS error expected in test environment)',
-            { error: error instanceof Error ? error.message : String(error) }
-          )
+          this.logger.warn('[TEST] Callback failed', {
+            error: error instanceof Error ? error.message : String(error),
+          })
         }
       }
 
@@ -127,7 +135,13 @@ export default class BraspagConnector extends PaymentProvider<
     try {
       return await this.pixAuthService.authorizePixPayment(authorization)
     } catch (error) {
-      this.logger.error('PIX authorization failed', error)
+      this.logger.error('[PIX_AUTH] Authorization failed', {
+        flow: 'authorization',
+        action: 'authorization_error',
+        paymentId: authorization.paymentId,
+        orderId: authorization.orderId,
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       return Authorizations.deny(authorization, {
         code: ERROR_CODES.ERROR,
@@ -141,8 +155,6 @@ export default class BraspagConnector extends PaymentProvider<
   public async cancel(
     cancellation: CancellationRequest
   ): Promise<CancellationResponse> {
-    this.logger.info('CANCEL: Received request', { cancellation })
-
     if (this.isTestSuite) {
       return Cancellations.approve(cancellation, {
         cancellationId: randomString(),
@@ -152,7 +164,12 @@ export default class BraspagConnector extends PaymentProvider<
     try {
       return await this.pixOpsService.cancelPayment(cancellation)
     } catch (error) {
-      this.logger.error('PIX cancellation failed', error)
+      this.logger.error('[PIX_CANCEL] Cancellation failed', {
+        flow: 'cancellation',
+        action: 'cancellation_error',
+        paymentId: cancellation.paymentId,
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       return Cancellations.deny(cancellation, {
         code: ERROR_CODES.ERROR,
@@ -174,8 +191,24 @@ export default class BraspagConnector extends PaymentProvider<
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
+        this.logger.warn('[PIX_REFUND] Payment not found or invalid type', {
+          flow: 'refund',
+          action: 'payment_validation_failed',
+          paymentId: refund.paymentId,
+          paymentFound: !!storedPayment,
+          paymentType: storedPayment?.type,
+        })
+
         return Refunds.deny(refund)
       }
+
+      this.logger.info('[PIX_REFUND] Starting refund process', {
+        flow: 'refund',
+        action: 'refund_started',
+        paymentId: refund.paymentId,
+        pixPaymentId: storedPayment.pixPaymentId,
+        amount: storedPayment.amount,
+      })
 
       const extended = (refund as unknown) as {
         merchantSettings?: Array<{ name: string; value: string }>
@@ -184,7 +217,7 @@ export default class BraspagConnector extends PaymentProvider<
       const merchantSettings = this.configService.getMerchantSettings({
         merchantSettings: extended.merchantSettings,
         paymentId: refund.paymentId,
-      } as any)
+      })
 
       const braspagClient = braspagClientFactory.createClient(
         this.context.vtex,
@@ -195,7 +228,107 @@ export default class BraspagConnector extends PaymentProvider<
         storedPayment.pixPaymentId
       )
 
+      const isSplitError =
+        voidResponse.ProviderReturnCode === 'BP335' ||
+        voidResponse.ReasonCode === 37 ||
+        voidResponse.ReasonMessage === 'SplitTransactionalError'
+
+      if (isSplitError) {
+        this.logger.warn(
+          '[PIX_REFUND] Split error detected, triggering voucher generation',
+          {
+            flow: 'refund',
+            action: 'split_error_detected',
+            paymentId: refund.paymentId,
+            pixPaymentId: storedPayment.pixPaymentId,
+            providerReturnCode: voidResponse.ProviderReturnCode,
+            reasonCode: voidResponse.ReasonCode,
+            reasonMessage: voidResponse.ReasonMessage,
+          }
+        )
+
+        try {
+          const orderId = storedPayment.orderId ?? storedPayment.merchantOrderId
+          const orderSequence = `${orderId}-01`
+          const order = await this.context.clients.orders.getOrder(
+            orderSequence
+          )
+
+          const userId =
+            (order as any)?.clientProfileData?.userProfileId ||
+            (order as any)?.clientProfileData?.id ||
+            order.orderId
+
+          const refundValue = storedPayment.amount ?? 0
+
+          const voucherRefundService = VoucherRefundServiceFactory.create({
+            giftcardsClient: this.context.clients.giftcards,
+            ordersClient: {
+              cancelOrderInVtex: this.context.clients.orders.cancelOrderInVtex.bind(
+                this.context.clients.orders
+              ),
+            },
+            storageService: this.storageService,
+            logger: this.logger,
+          })
+
+          const voucherResult = await voucherRefundService.processVoucherRefund(
+            {
+              orderId,
+              paymentId: refund.paymentId,
+              userId: userId.toString(),
+              refundValue,
+            }
+          )
+
+          this.logger.info('[PIX_REFUND] Voucher generated successfully', {
+            flow: 'refund',
+            action: 'voucher_generated',
+            paymentId: refund.paymentId,
+            orderId,
+            giftCardId: voucherResult.giftCardId,
+            redemptionCode: voucherResult.redemptionCode,
+            refundValue,
+          })
+
+          return Refunds.approve(refund, {
+            refundId: storedPayment.pixPaymentId,
+            code: 'BP335',
+            message: `PIX refund processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
+          })
+        } catch (voucherError) {
+          this.logger.error('[PIX_REFUND] Voucher generation failed', {
+            flow: 'refund',
+            action: 'voucher_generation_failed',
+            paymentId: refund.paymentId,
+            orderId: storedPayment.orderId ?? storedPayment.merchantOrderId,
+            error:
+              voucherError instanceof Error
+                ? voucherError.message
+                : String(voucherError),
+          })
+
+          return Refunds.deny(refund, {
+            code: 'BP335',
+            message: `Split error detected but voucher generation failed: ${
+              voucherError instanceof Error
+                ? voucherError.message
+                : 'Unknown error'
+            }`,
+          })
+        }
+      }
+
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+
+      this.logger.info('[PIX_REFUND] Refund approved', {
+        flow: 'refund',
+        action: 'refund_approved',
+        paymentId: refund.paymentId,
+        pixPaymentId: storedPayment.pixPaymentId,
+        refundId: storedPayment.pixPaymentId,
+        status: voidResponse.Status,
+      })
 
       return Refunds.approve(refund, {
         refundId: storedPayment.pixPaymentId,
@@ -203,7 +336,12 @@ export default class BraspagConnector extends PaymentProvider<
         message: 'PIX total refund requested successfully',
       })
     } catch (error) {
-      this.logger.error('PIX refund failed', error)
+      this.logger.error('[PIX_REFUND] Refund failed', {
+        flow: 'refund',
+        action: 'refund_error',
+        paymentId: refund.paymentId,
+        error: error instanceof Error ? error.message : String(error),
+      })
 
       return Refunds.deny(refund)
     }
@@ -216,23 +354,22 @@ export default class BraspagConnector extends PaymentProvider<
       return Settlements.deny(settlement)
     }
 
-    console.log('PIX SETTLEMENT: Processing settlement request', { settlement })
-    console.dir(
-      { where: 'connector.settle', settlement },
-      { depth: null, colors: true }
-    )
+    this.logger.info('[PIX_SETTLE] Starting settlement process', {
+      flow: 'settlement',
+      action: 'settlement_started',
+      paymentId: settlement.paymentId,
+      value: settlement.value,
+    })
 
     return this.pixOpsService.settlePayment(settlement)
   }
 
-  /**
-   * Inbound webhook handler for receiving Braspag notifications
-   * Processes payment status changes and triggers appropriate actions
-   */
   public inbound = async (request: any): Promise<any> => {
-    this.logger.info('INBOUND: Webhook received', {
-      body: request.body,
-      headers: request.headers,
+    this.logger.info('[WEBHOOK] Notification received', {
+      flow: 'webhook',
+      action: 'notification_received',
+      paymentId: request.body?.PaymentId,
+      changeType: request.body?.ChangeType,
     })
 
     const vbaseClient = {

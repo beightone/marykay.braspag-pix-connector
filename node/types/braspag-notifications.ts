@@ -33,6 +33,7 @@ export interface StoredBraspagPayment {
   pixPaymentId: string
   braspagTransactionId?: string
   merchantOrderId: string
+  orderId?: string
   status?: number
   type: string
   lastUpdated?: string
