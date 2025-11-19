@@ -12,7 +12,6 @@ export interface BraspagPixAdapterConfig {
   discountsSubtotal?: number
   shippingValue?: number
   couponDiscount?: number
-  totalTaxes?: number
   isConsultantCoupon?: boolean
   isFreeShippingCoupon?: boolean
 }

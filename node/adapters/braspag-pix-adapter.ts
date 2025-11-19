@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import { AuthorizationRequest } from '@vtex/payment-provider'
 
 import {
@@ -12,6 +11,7 @@ import {
   BuyerInfo,
 } from './types'
 import { calculateCommissions } from '../helpers/payment-split/calculate-commissions'
+import { DatadogCompatibleLogger } from '../tools/datadog/logger.types'
 
 const MARY_KAY_SPLIT_CONFIG = {
   MARKETPLACE_MERCHANT_ID: 'D23429C6-4CDC-484E-9DFA-A8ECD5EA539C',
@@ -63,7 +63,10 @@ class MaryKaySplitCalculator {
 export class BraspagPixRequestBuilder {
   private request: Partial<CreatePixSaleRequest> = {}
 
-  constructor(private authorization: AuthorizationWithSplits) {}
+  constructor(
+    private authorization: AuthorizationWithSplits,
+    private logger?: DatadogCompatibleLogger
+  ) {}
 
   /**
    * Set merchant order ID from transaction
@@ -175,7 +178,7 @@ export class BraspagPixRequestBuilder {
   ): SplitPaymentEntry[] {
     const subordinateMerchantId = config.braspagId ?? config.monitfyConsultantId
 
-    console.log('BRASPAG_ADAPTER: Creating split payments', {
+    this.logger?.info('BRASPAG_ADAPTER: Creating split payments', {
       braspagId: config.braspagId,
       monitfyConsultantId: config.monitfyConsultantId,
       subordinateMerchantId,
@@ -183,7 +186,7 @@ export class BraspagPixRequestBuilder {
     })
 
     if (!subordinateMerchantId || !config.splitProfitPct) {
-      console.log('BRASPAG_ADAPTER: Skipping split - missing data', {
+      this.logger?.info('BRASPAG_ADAPTER: Skipping split - missing data', {
         hasSubordinateMerchantId: !!subordinateMerchantId,
         hasSplitProfitPct: !!config.splitProfitPct,
       })
@@ -191,13 +194,20 @@ export class BraspagPixRequestBuilder {
       return []
     }
 
-    const totalTaxes = config.totalTaxes ?? 5
-    const subordinateRaw = Math.max(
+    const masterRaw = Math.max(
       0,
-      Math.min(100, (config.splitProfitPct ?? 0) - totalTaxes)
+      Math.min(100, config.splitProfitPct ?? 0)
     )
 
-    const masterRaw = Math.max(0, Math.min(100, 100 - subordinateRaw))
+    const subordinateRaw = Math.max(0, Math.min(100, 100 - masterRaw))
+
+    this.logger?.info('BRASPAG_ADAPTER: Raw commission calculation', {
+      splitProfitPct: config.splitProfitPct,
+      masterRaw,
+      subordinateRaw,
+      sum: subordinateRaw + masterRaw,
+      note: 'master=MaryKay, subordinate=Consultant',
+    })
 
     const adjusted = calculateCommissions(
       {
@@ -207,8 +217,14 @@ export class BraspagPixRequestBuilder {
       },
       { master: masterRaw, subordinate: subordinateRaw },
       !(config.isConsultantCoupon ?? false),
-      config.isFreeShippingCoupon ?? false
+      config.isFreeShippingCoupon ?? false,
+      this.logger
     )
+
+    this.logger?.info('BRASPAG_ADAPTER: Adjusted commissions', {
+      rawCommissions: { master: masterRaw, subordinate: subordinateRaw },
+      adjustedCommissions: adjusted,
+    })
 
     const shippingValue = config.shippingValue ?? 0
     const netAmount = Math.max(0, totalAmount - shippingValue)
@@ -219,24 +235,49 @@ export class BraspagPixRequestBuilder {
 
     const maryKayAmount = totalAmount - consultantAmount
 
-    return [
+    this.logger?.info('BRASPAG_ADAPTER: Final split amounts', {
+      totalAmount,
+      shippingValue,
+      netAmount,
+      consultantAmount,
+      maryKayAmount,
+      consultantPercentage: adjusted.subordinate,
+      maryKayPercentage: adjusted.master,
+    })
+
+    const splitPayments = [
       MaryKaySplitCalculator.createMaryKaySplit(maryKayAmount),
       MaryKaySplitCalculator.createConsultantSplit(
         consultantAmount,
         subordinateMerchantId
       ),
     ]
+
+    this.logger?.info('BRASPAG_ADAPTER: Split payments created', {
+      splitCount: splitPayments.length,
+      maryKay: {
+        merchantId: MARY_KAY_SPLIT_CONFIG.MARKETPLACE_MERCHANT_ID,
+        amount: maryKayAmount,
+      },
+      consultant: {
+        merchantId: subordinateMerchantId,
+        amount: consultantAmount,
+      },
+    })
+
+    return splitPayments
   }
 }
 
 export class BraspagPixAdapterFactory {
   public static createPixSaleRequest(
     authorization: AuthorizationRequest,
-    config: BraspagPixAdapterConfig
+    config: BraspagPixAdapterConfig,
+    logger?: DatadogCompatibleLogger
   ): CreatePixSaleRequest {
     const authWithSplits = (authorization as unknown) as AuthorizationWithSplits
 
-    const builder = new BraspagPixRequestBuilder(authWithSplits)
+    const builder = new BraspagPixRequestBuilder(authWithSplits, logger)
 
     const request = builder
       .setMerchantOrderId()
@@ -273,7 +314,11 @@ export class BraspagPixAdapterFactory {
   }
 }
 
-export const createBraspagPixSaleRequest =
-  BraspagPixAdapterFactory.createPixSaleRequest
+export const createBraspagPixSaleRequest = (
+  authorization: AuthorizationRequest,
+  config: BraspagPixAdapterConfig,
+  logger?: DatadogCompatibleLogger
+) => BraspagPixAdapterFactory.createPixSaleRequest(authorization, config, logger)
 
 export const { createPixPaymentAppData } = BraspagPixAdapterFactory
+

@@ -1,4 +1,6 @@
 /* eslint-disable max-params */
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
+
 interface OrderValues {
   totalItemsAmount: number
   totalDiscountAmount: number
@@ -14,16 +16,31 @@ export function calculateCommissions(
   orderValues: OrderValues,
   rawCommissions: Commissions,
   sharedCoupon: boolean,
-  isFreeShippingCoupon = false
+  isFreeShippingCoupon = false,
+  logger?: DatadogCompatibleLogger
 ) {
-  if (!orderValues.couponDiscountAmount || isFreeShippingCoupon)
+  logger?.info('COMMISSION_CALC: Starting calculation', {
+    orderValues,
+    rawCommissions,
+    sharedCoupon,
+    isFreeShippingCoupon,
+  })
+
+  if (!orderValues.couponDiscountAmount || isFreeShippingCoupon) {
+    logger?.info('COMMISSION_CALC: No coupon adjustment needed', {
+      reason: !orderValues.couponDiscountAmount
+        ? 'no_coupon'
+        : 'free_shipping_coupon',
+    })
+
     return rawCommissions
+  }
 
   const baseAmount = orderValues.totalItemsAmount
   const couponAmount = Math.abs(orderValues.couponDiscountAmount)
   const totalDiscountAmount = Math.abs(orderValues.totalDiscountAmount)
 
-  return sharedCoupon
+  const result = sharedCoupon
     ? calculateSharedCoupon(
         baseAmount,
         couponAmount,
@@ -36,6 +53,13 @@ export function calculateCommissions(
         totalDiscountAmount,
         rawCommissions
       )
+
+  logger?.info('COMMISSION_CALC: Calculation completed', {
+    adjustedCommissions: result,
+    couponType: sharedCoupon ? 'shared' : 'consultant',
+  })
+
+  return result
 }
 
 function calculateSharedCoupon(

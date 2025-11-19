@@ -34,7 +34,7 @@ export class BraspagConfigBuilder {
 
     return {
       credentials,
-      environment: isProduction ? this.PRODUCTION_ENV : this.SANDBOX_ENV,
+      environment: !isProduction ? this.PRODUCTION_ENV : this.SANDBOX_ENV,
       isProduction,
     }
   }

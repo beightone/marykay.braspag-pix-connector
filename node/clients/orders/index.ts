@@ -1,10 +1,10 @@
-/* eslint-disable no-console */
 import { OMS } from '@vtex/clients'
 import type { InstanceOptions, IOContext } from '@vtex/api'
 import type { AuthMethod, OrderDetailResponse } from '@vtex/clients'
 
 import { ExtractedOrderData } from './types'
 import { HublyClient } from '../hubly'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 
 export class OMSClient extends OMS {
   private hublyClient: HublyClient
@@ -74,7 +74,8 @@ export class OMSClient extends OMS {
 
   public async extractOrderData(
     orderId: string,
-    hublyConfig?: { apiKey?: string; organizationId?: string }
+    hublyConfig?: { apiKey?: string; organizationId?: string },
+    logger?: DatadogCompatibleLogger
   ): Promise<ExtractedOrderData> {
     const order = await this.getOrder(orderId)
     const customApps = order.customData?.customApps ?? []
@@ -97,6 +98,13 @@ export class OMSClient extends OMS {
     const discountsSubtotal = totals.find((t) => t.id === 'Discounts')?.value ?? 0
     const shippingValue = totals.find((t) => t.id === 'Shipping')?.value ?? 0
 
+    logger?.info('ORDER_EXTRACT: Totals extracted', {
+      itemsSubtotal,
+      discountsSubtotal,
+      shippingValue,
+      totalValue: order.value,
+    })
+
     let couponDiscount = 0
     const couponCode = (order as any)?.marketingData?.coupon as string | undefined
     const rateIds = (order as any)?.ratesAndBenefitsData?.rateAndBenefitsIdentifiers as
@@ -107,10 +115,18 @@ export class OMSClient extends OMS {
       (p) => p.matchedParameters?.['couponCode@Marketing'] === couponCode
     )?.id
 
+    logger?.info('ORDER_EXTRACT: Coupon analysis', {
+      couponCode,
+      couponPromotionId,
+      rateIdsCount: rateIds?.length ?? 0,
+      shippingValue,
+      discountsSubtotal,
+    })
+
     if (couponPromotionId) {
       const items = (order.items as any[]) || []
 
-      couponDiscount = items.reduce((acc, item) => {
+      couponDiscount = items.reduce((acc: number, item: any) => {
         const priceTags: Array<{ identifier?: string; value: number }> =
           (item.priceTags as any[]) || []
 
@@ -118,8 +134,13 @@ export class OMSClient extends OMS {
 
         if (!tag) return acc
 
-        return acc + Math.abs(tag.value)
+        return (acc as number) + Math.abs((tag.value ?? 0) as number)
       }, 0)
+
+      logger?.info('ORDER_EXTRACT: Coupon discount calculated', {
+        couponDiscount,
+        isFreeShipping: shippingValue === 0 && couponDiscount > 0,
+      })
     }
 
     let braspagId: string | undefined
@@ -163,7 +184,17 @@ export class OMSClient extends OMS {
       console.log('HUBLY: Skipping fetch - missing consultantId')
     }
 
-    return {
+    const isFreeShippingCoupon = shippingValue === 0 && couponDiscount > 0
+
+    if (isFreeShippingCoupon) {
+      logger?.info('ORDER_EXTRACT: Free shipping coupon detected - resetting couponDiscount to 0', {
+        originalCouponDiscount: couponDiscount,
+        shippingValue,
+        message: 'Split will use 75% Mary Kay / 25% Consultant (no adjustment)',
+      })
+    }
+
+    const extractedData = {
       consultantId,
       splitProfitPct,
       splitDiscountPct,
@@ -171,9 +202,13 @@ export class OMSClient extends OMS {
       itemsSubtotal,
       discountsSubtotal,
       shippingValue,
-      couponDiscount,
-      totalTaxes: 5,
+      couponDiscount: isFreeShippingCoupon ? 0 : couponDiscount,
+      isFreeShippingCoupon,
     }
+
+    logger?.info('ORDER_EXTRACT: Final order data', extractedData)
+
+    return extractedData
   }
 }
 

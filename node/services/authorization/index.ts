@@ -119,8 +119,17 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       try {
         orderData = await this.deps.ordersClient.extractOrderData(
           orderSequence,
-          hublyConfig
+          hublyConfig,
+          this.deps.logger
         )
+
+        this.deps.logger.info('PIX_AUTH: Order data extracted', {
+          orderId: extended.orderId,
+          hasOrderData: !!orderData,
+          consultantId: orderData?.consultantId,
+          braspagId: orderData?.braspagId,
+          splitProfitPct: orderData?.splitProfitPct,
+        })
       } catch (error) {
         this.deps.logger.warn('[PIX_AUTH] Order data extraction failed', {
           flow: 'authorization',
@@ -132,7 +141,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       }
     }
 
-    const pixRequest = createBraspagPixSaleRequest(authorization, {
+    const adapterConfig = {
       merchantId: merchantSettings.merchantId,
       notificationUrl,
       monitfyConsultantId: orderData?.consultantId,
@@ -143,7 +152,36 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       discountsSubtotal: orderData?.discountsSubtotal,
       shippingValue: orderData?.shippingValue,
       couponDiscount: orderData?.couponDiscount,
-      totalTaxes: orderData?.totalTaxes,
+      isFreeShippingCoupon: orderData?.isFreeShippingCoupon,
+    }
+
+    this.deps.logger.info('PIX_AUTH: Adapter config', adapterConfig)
+
+    const pixRequest = createBraspagPixSaleRequest(
+      authorization,
+      adapterConfig,
+      this.deps.logger
+    )
+
+    this.deps.logger.info('PIX_AUTH: PIX request created', {
+      merchantOrderId: pixRequest.MerchantOrderId,
+      customer: pixRequest.Customer,
+      payment: {
+        type: pixRequest.Payment.Type,
+        amount: pixRequest.Payment.Amount,
+        hasSplitPayments: !!pixRequest.Payment.SplitPayments,
+        splitPaymentsCount: pixRequest.Payment.SplitPayments?.length ?? 0,
+        splitPayments: pixRequest.Payment.SplitPayments,
+      },
+      splitPayments: pixRequest.Payment.SplitPayments,
+      fares: JSON.stringify(
+        pixRequest.Payment.SplitPayments?.map(sp => ({
+          subordinateMerchantId: sp.SubordinateMerchantId,
+          amount: sp.Amount,
+          mdr: sp.Fares?.Mdr,
+          fee: sp.Fares?.Fee,
+        }))
+      ),
     })
 
     this.deps.logger.info('[PIX_AUTH] Creating PIX payment', {
@@ -162,6 +200,12 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
+    this.deps.logger.info('PIX_AUTH: Braspag response received', {
+      hasPayment: !!pixResponse.Payment,
+      status: pixResponse.Payment?.Status,
+      paymentId: pixResponse.Payment?.PaymentId,
+    })
+
     if (!pixResponse.Payment) {
       this.deps.logger.error('[PIX_AUTH] Payment creation failed', {
         flow: 'authorization',
@@ -175,6 +219,24 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const { Payment: payment } = pixResponse
 
     if (payment.Status === BRASPAG_STATUS.ABORTED) {
+      /* eslint-disable no-console, @typescript-eslint/no-explicit-any */
+      const paymentAny = payment as any
+
+      console.log('========== PAYMENT ABORTED - START ==========')
+      console.log('Full payment object:')
+      console.log(JSON.stringify(payment, null, 2))
+      console.log('\nError details:')
+      console.log('ReturnCode:', paymentAny.ReturnCode)
+      console.log('ReturnMessage:', paymentAny.ReturnMessage)
+      console.log('ProviderReturnCode:', paymentAny.ProviderReturnCode)
+      console.log('ProviderReturnMessage:', paymentAny.ProviderReturnMessage)
+      console.log('ReasonCode:', paymentAny.ReasonCode)
+      console.log('ReasonMessage:', paymentAny.ReasonMessage)
+      console.log('\nFull response:')
+      console.log(JSON.stringify(pixResponse, null, 2))
+      console.log('========== PAYMENT ABORTED - END ==========')
+      /* eslint-enable no-console, @typescript-eslint/no-explicit-any */
+
       this.deps.logger.error('[PIX_AUTH] Payment aborted', {
         flow: 'authorization',
         action: 'payment_aborted',

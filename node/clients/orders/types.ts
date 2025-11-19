@@ -62,5 +62,5 @@ export interface ExtractedOrderData {
   discountsSubtotal?: number
   shippingValue?: number
   couponDiscount?: number
-  totalTaxes?: number
+  isFreeShippingCoupon?: boolean
 }
