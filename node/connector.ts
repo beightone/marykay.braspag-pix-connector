@@ -132,6 +132,14 @@ export default class BraspagConnector extends PaymentProvider<
       })
     }
 
+    this.logger.info('[PIX_AUTH] Authorization request received', {
+      flow: 'authorization',
+      action: 'authorization_request',
+      paymentId: authorization.paymentId,
+      orderId: authorization.orderId,
+      value: authorization.value,
+    })
+
     try {
       return await this.pixAuthService.authorizePixPayment(authorization)
     } catch (error) {

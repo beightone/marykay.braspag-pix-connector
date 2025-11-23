@@ -62,11 +62,14 @@ class MaryKaySplitCalculator {
  */
 export class BraspagPixRequestBuilder {
   private request: Partial<CreatePixSaleRequest> = {}
+  private logger?: DatadogCompatibleLogger
 
   constructor(
     private authorization: AuthorizationWithSplits,
-    private logger?: DatadogCompatibleLogger
-  ) {}
+    logger?: DatadogCompatibleLogger
+  ) {
+    this.logger = logger
+  }
 
   /**
    * Set merchant order ID from transaction
@@ -99,7 +102,7 @@ export class BraspagPixRequestBuilder {
    */
   public setPayment(config: BraspagPixAdapterConfig): this {
     const amount = this.convertToAmount()
-    const splitPayments = this.createSplitPayments(config, amount)
+    const splitPayments = this.createSplitPayments(config, amount, this.logger)
 
     this.request.Payment = {
       Type: 'Pix',
@@ -174,40 +177,52 @@ export class BraspagPixRequestBuilder {
    */
   private createSplitPayments(
     config: BraspagPixAdapterConfig,
-    totalAmount: number
+    totalAmount: number,
+    logger?: DatadogCompatibleLogger
   ): SplitPaymentEntry[] {
     const subordinateMerchantId = config.braspagId ?? config.monitfyConsultantId
 
-    this.logger?.info('BRASPAG_ADAPTER: Creating split payments', {
-      braspagId: config.braspagId,
-      monitfyConsultantId: config.monitfyConsultantId,
-      subordinateMerchantId,
-      splitProfitPct: config.splitProfitPct,
-    })
+    if (logger) {
+      logger.info('[BRASPAG_ADAPTER] Creating split payments', {
+        flow: 'authorization',
+        action: 'create_split_payments',
+        braspagId: config.braspagId,
+        monitfyConsultantId: config.monitfyConsultantId,
+        subordinateMerchantId,
+        splitProfitPct: config.splitProfitPct,
+      })
+    }
 
     if (!subordinateMerchantId || !config.splitProfitPct) {
-      this.logger?.info('BRASPAG_ADAPTER: Skipping split - missing data', {
-        hasSubordinateMerchantId: !!subordinateMerchantId,
-        hasSplitProfitPct: !!config.splitProfitPct,
-      })
+      if (logger) {
+        logger.warn('[BRASPAG_ADAPTER] Skipping split - missing data', {
+          flow: 'authorization',
+          action: 'skip_split_missing_data',
+          hasSubordinateMerchantId: !!subordinateMerchantId,
+          hasSplitProfitPct: !!config.splitProfitPct,
+        })
+      }
 
       return []
     }
 
-    const masterRaw = Math.max(
-      0,
-      Math.min(100, config.splitProfitPct ?? 0)
-    )
+    const totalTaxes = config.totalTaxes ?? 5
+    const splitProfitPct = config.splitProfitPct ?? 0
+    const subordinateRaw = Math.max(0, Math.min(100, splitProfitPct - totalTaxes))
+    const masterRaw = Math.max(0, Math.min(100, 100 - subordinateRaw))
 
-    const subordinateRaw = Math.max(0, Math.min(100, 100 - masterRaw))
-
-    this.logger?.info('BRASPAG_ADAPTER: Raw commission calculation', {
-      splitProfitPct: config.splitProfitPct,
-      masterRaw,
-      subordinateRaw,
-      sum: subordinateRaw + masterRaw,
-      note: 'master=MaryKay, subordinate=Consultant',
-    })
+    if (logger) {
+      logger.info('[BRASPAG_ADAPTER] Calculating raw commissions', {
+        flow: 'authorization',
+        action: 'calculate_raw_commissions',
+        splitProfitPct,
+        totalTaxes,
+        subordinateRaw,
+        masterRaw,
+        isFreeShippingCoupon: config.isFreeShippingCoupon ?? false,
+        isConsultantCoupon: config.isConsultantCoupon ?? false,
+      })
+    }
 
     const adjusted = calculateCommissions(
       {
@@ -221,10 +236,21 @@ export class BraspagPixRequestBuilder {
       this.logger
     )
 
-    this.logger?.info('BRASPAG_ADAPTER: Adjusted commissions', {
-      rawCommissions: { master: masterRaw, subordinate: subordinateRaw },
-      adjustedCommissions: adjusted,
-    })
+    if (logger) {
+      logger.info('[BRASPAG_ADAPTER] Commissions adjusted', {
+        flow: 'authorization',
+        action: 'commissions_adjusted',
+        rawMaster: masterRaw,
+        rawSubordinate: subordinateRaw,
+        adjustedMaster: adjusted.master,
+        adjustedSubordinate: adjusted.subordinate,
+        totalItemsAmount: config.itemsSubtotal ?? totalAmount,
+        totalDiscountAmount: config.discountsSubtotal ?? 0,
+        couponDiscountAmount: config.couponDiscount ?? 0,
+        isFreeShippingCoupon: config.isFreeShippingCoupon ?? false,
+        isConsultantCoupon: config.isConsultantCoupon ?? false,
+      })
+    }
 
     const shippingValue = config.shippingValue ?? 0
     const netAmount = Math.max(0, totalAmount - shippingValue)
@@ -235,17 +261,25 @@ export class BraspagPixRequestBuilder {
 
     const maryKayAmount = totalAmount - consultantAmount
 
-    this.logger?.info('BRASPAG_ADAPTER: Final split amounts', {
-      totalAmount,
-      shippingValue,
-      netAmount,
-      consultantAmount,
-      maryKayAmount,
-      consultantPercentage: adjusted.subordinate,
-      maryKayPercentage: adjusted.master,
-    })
+    if (logger) {
+      logger.info('[BRASPAG_ADAPTER] Split amounts calculated', {
+        flow: 'authorization',
+        action: 'split_amounts_calculated',
+        totalAmount,
+        shippingValue,
+        netAmount,
+        consultantAmount,
+        maryKayAmount,
+        consultantPercentage: (consultantAmount / totalAmount) * 100,
+        maryKayPercentage: (maryKayAmount / totalAmount) * 100,
+        totalSplit: consultantAmount + maryKayAmount,
+        difference: totalAmount - (consultantAmount + maryKayAmount),
+        adjustedSubordinate: adjusted.subordinate,
+        adjustedMaster: adjusted.master,
+      })
+    }
 
-    const splitPayments = [
+    const splits = [
       MaryKaySplitCalculator.createMaryKaySplit(maryKayAmount),
       MaryKaySplitCalculator.createConsultantSplit(
         consultantAmount,
@@ -253,19 +287,20 @@ export class BraspagPixRequestBuilder {
       ),
     ]
 
-    this.logger?.info('BRASPAG_ADAPTER: Split payments created', {
-      splitCount: splitPayments.length,
-      maryKay: {
-        merchantId: MARY_KAY_SPLIT_CONFIG.MARKETPLACE_MERCHANT_ID,
-        amount: maryKayAmount,
-      },
-      consultant: {
-        merchantId: subordinateMerchantId,
-        amount: consultantAmount,
-      },
-    })
+    if (logger) {
+      logger.info('[BRASPAG_ADAPTER] Split payments created', {
+        flow: 'authorization',
+        action: 'split_payments_created',
+        splits: splits.map(split => ({
+          subordinateMerchantId: split.SubordinateMerchantId,
+          amount: split.Amount,
+          mdr: split.Fares?.Mdr,
+          fee: split.Fares?.Fee,
+        })),
+      })
+    }
 
-    return splitPayments
+    return splits
   }
 }
 

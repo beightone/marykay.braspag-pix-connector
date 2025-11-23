@@ -1,16 +1,19 @@
 export interface LogBody {
-  source: string
+  ddsource?: string
+  ddtags?: string
+  hostname: string
+  service: string
+  message: string
+  status: string
+  timestamp?: string
+  trace_id?: string
   env: string
   version: string
-  hostname: string
-  message: string
-  service: string
-  status: LogType
   operationId: string
   account: string
   content: unknown
   http?: Http
-  trace_id: string
+  source?: string
   metadata?: Record<string, unknown>
 }
 

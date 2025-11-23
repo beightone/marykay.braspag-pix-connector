@@ -117,18 +117,37 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       }
 
       try {
+        this.deps.logger.info('[PIX_AUTH] Extracting order data', {
+          flow: 'authorization',
+          action: 'extract_order_data_start',
+          orderId: extended.orderId,
+          orderSequence,
+        })
+
         orderData = await this.deps.ordersClient.extractOrderData(
           orderSequence,
           hublyConfig,
           this.deps.logger
         )
 
-        this.deps.logger.info('PIX_AUTH: Order data extracted', {
+        const isFreeShipping =
+          (orderData?.shippingValue ?? 0) === 0 &&
+          (orderData?.couponDiscount ?? 0) > 0
+
+        this.deps.logger.info('[PIX_AUTH] Order data extracted', {
+          flow: 'authorization',
+          action: 'order_data_extracted',
           orderId: extended.orderId,
-          hasOrderData: !!orderData,
           consultantId: orderData?.consultantId,
           braspagId: orderData?.braspagId,
           splitProfitPct: orderData?.splitProfitPct,
+          splitDiscountPct: orderData?.splitDiscountPct,
+          itemsSubtotal: orderData?.itemsSubtotal,
+          discountsSubtotal: orderData?.discountsSubtotal,
+          shippingValue: orderData?.shippingValue,
+          couponDiscount: orderData?.couponDiscount,
+          totalTaxes: orderData?.totalTaxes,
+          isFreeShipping,
         })
       } catch (error) {
         this.deps.logger.warn('[PIX_AUTH] Order data extraction failed', {
@@ -141,69 +160,93 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       }
     }
 
-    const adapterConfig = {
-      merchantId: merchantSettings.merchantId,
-      notificationUrl,
-      monitfyConsultantId: orderData?.consultantId,
-      braspagId: orderData?.braspagId,
-      splitProfitPct: orderData?.splitProfitPct,
-      splitDiscountPct: orderData?.splitDiscountPct,
-      itemsSubtotal: orderData?.itemsSubtotal,
-      discountsSubtotal: orderData?.discountsSubtotal,
-      shippingValue: orderData?.shippingValue,
-      couponDiscount: orderData?.couponDiscount,
-      isFreeShippingCoupon: orderData?.isFreeShippingCoupon,
-    }
+    const isFreeShippingCoupon =
+      (orderData?.shippingValue ?? 0) === 0 &&
+      (orderData?.couponDiscount ?? 0) > 0
 
-    this.deps.logger.info('PIX_AUTH: Adapter config', adapterConfig)
+    this.deps.logger.info(
+      '[PIX_AUTH] Building PIX request with split calculation',
+      {
+        flow: 'authorization',
+        action: 'build_pix_request',
+        paymentId: authorization.paymentId,
+        orderId: authorization.orderId,
+        value: authorization.value,
+        merchantId: merchantSettings.merchantId,
+        orderData: {
+          consultantId: orderData?.consultantId,
+          braspagId: orderData?.braspagId,
+          splitProfitPct: orderData?.splitProfitPct,
+          splitDiscountPct: orderData?.splitDiscountPct,
+          itemsSubtotal: orderData?.itemsSubtotal,
+          discountsSubtotal: orderData?.discountsSubtotal,
+          shippingValue: orderData?.shippingValue,
+          couponDiscount: orderData?.couponDiscount,
+          totalTaxes: orderData?.totalTaxes,
+          isFreeShippingCoupon,
+        },
+      }
+    )
 
     const pixRequest = createBraspagPixSaleRequest(
       authorization,
-      adapterConfig,
+      {
+        merchantId: merchantSettings.merchantId,
+        notificationUrl,
+        monitfyConsultantId: orderData?.consultantId,
+        braspagId: orderData?.braspagId,
+        splitProfitPct: orderData?.splitProfitPct,
+        splitDiscountPct: orderData?.splitDiscountPct,
+        itemsSubtotal: orderData?.itemsSubtotal,
+        discountsSubtotal: orderData?.discountsSubtotal,
+        shippingValue: orderData?.shippingValue,
+        couponDiscount: orderData?.couponDiscount,
+        totalTaxes: orderData?.totalTaxes,
+        isFreeShippingCoupon,
+      },
       this.deps.logger
     )
 
-    this.deps.logger.info('PIX_AUTH: PIX request created', {
-      merchantOrderId: pixRequest.MerchantOrderId,
-      customer: pixRequest.Customer,
-      payment: {
-        type: pixRequest.Payment.Type,
-        amount: pixRequest.Payment.Amount,
-        hasSplitPayments: !!pixRequest.Payment.SplitPayments,
-        splitPaymentsCount: pixRequest.Payment.SplitPayments?.length ?? 0,
-        splitPayments: pixRequest.Payment.SplitPayments,
-      },
-      splitPayments: pixRequest.Payment.SplitPayments,
-      fares: JSON.stringify(
-        pixRequest.Payment.SplitPayments?.map(sp => ({
-          subordinateMerchantId: sp.SubordinateMerchantId,
-          amount: sp.Amount,
-          mdr: sp.Fares?.Mdr,
-          fee: sp.Fares?.Fee,
-        }))
-      ),
-    })
-
-    this.deps.logger.info('[PIX_AUTH] Creating PIX payment', {
+    this.deps.logger.info('[PIX_AUTH] PIX request built', {
       flow: 'authorization',
-      action: 'create_pix',
+      action: 'pix_request_built',
       paymentId: authorization.paymentId,
       transactionId: authorization.transactionId,
       orderId: authorization.orderId,
       value: authorization.value,
-      merchantId: merchantSettings.merchantId,
+      merchantOrderId: pixRequest.MerchantOrderId,
+      paymentAmount: pixRequest.Payment?.Amount,
       hasSplit: !!pixRequest.Payment?.SplitPayments?.length,
       splitCount: pixRequest.Payment?.SplitPayments?.length ?? 0,
+      splits: pixRequest.Payment?.SplitPayments?.map(split => ({
+        subordinateMerchantId: split.SubordinateMerchantId,
+        amount: split.Amount,
+        mdr: split.Fares?.Mdr,
+        fee: split.Fares?.Fee,
+      })),
       consultantId: orderData?.consultantId,
       braspagId: orderData?.braspagId,
     })
 
+    this.deps.logger.info('[PIX_AUTH] Sending request to Braspag', {
+      flow: 'authorization',
+      action: 'send_braspag_request',
+      paymentId: authorization.paymentId,
+      merchantOrderId: pixRequest.MerchantOrderId,
+      requestPayload: JSON.stringify(pixRequest),
+    })
+
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
-    this.deps.logger.info('PIX_AUTH: Braspag response received', {
-      hasPayment: !!pixResponse.Payment,
+    this.deps.logger.info('[PIX_AUTH] Braspag response received', {
+      flow: 'authorization',
+      action: 'braspag_response_received',
+      paymentId: authorization.paymentId,
+      orderId: authorization.orderId,
+      braspagPaymentId: pixResponse.Payment?.PaymentId,
       status: pixResponse.Payment?.Status,
-      paymentId: pixResponse.Payment?.PaymentId,
+      hasQrCode: !!pixResponse.Payment?.QrCodeString,
+      responsePayload: JSON.stringify(pixResponse),
     })
 
     if (!pixResponse.Payment) {

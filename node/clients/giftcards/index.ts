@@ -1,5 +1,8 @@
 import type { InstanceOptions, IOContext } from '@vtex/api'
 import { ExternalClient } from '@vtex/api'
+import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
+import { Logger } from '../../tools/datadog/datadog'
+import { Datadog } from '../datadog'
 
 interface RefundVoucherRequest {
   userId: string
@@ -13,6 +16,8 @@ interface RefundVoucherResponse {
 }
 
 export class GiftcardsClient extends ExternalClient {
+  private logger: DatadogLoggerAdapter
+
   constructor(ctx: IOContext, opts?: InstanceOptions) {
     super(`http://${ctx.workspace}--${ctx.account}.myvtex.com`, ctx, {
       ...opts,
@@ -23,6 +28,10 @@ export class GiftcardsClient extends ExternalClient {
         'X-Vtex-Use-HTTPS': 'true',
       },
     })
+
+    const datadogClient = new Datadog(ctx, opts)
+    const datadogLogger = new Logger(ctx as any, datadogClient)
+    this.logger = new DatadogLoggerAdapter(datadogLogger)
   }
 
   public async createRefundVoucher(
@@ -30,7 +39,9 @@ export class GiftcardsClient extends ExternalClient {
   ): Promise<RefundVoucherResponse> {
     const startTime = Date.now()
 
-    console.log('GIFTCARDS_CLIENT: Creating refund voucher', {
+    this.logger.info('[GIFTCARDS_CLIENT] Creating refund voucher', {
+      flow: 'voucher_refund',
+      action: 'create_refund_voucher',
       userId: request.userId,
       refundValue: request.refundValue,
       orderId: request.orderId,
@@ -50,7 +61,9 @@ export class GiftcardsClient extends ExternalClient {
 
       const duration = Date.now() - startTime
 
-      console.log('GIFTCARDS_CLIENT: Refund voucher created successfully', {
+      this.logger.info('[GIFTCARDS_CLIENT] Refund voucher created successfully', {
+        flow: 'voucher_refund',
+        action: 'refund_voucher_created',
         giftCardId: response.giftCardId,
         redemptionCode: response.redemptionCode,
         userId: request.userId,
@@ -65,7 +78,9 @@ export class GiftcardsClient extends ExternalClient {
       const errorMsg = error instanceof Error ? error.message : String(error)
       const errorStack = error instanceof Error ? error.stack : undefined
 
-      console.error('GIFTCARDS_CLIENT: Failed to create refund voucher', {
+      this.logger.error('[GIFTCARDS_CLIENT] Failed to create refund voucher', error, {
+        flow: 'voucher_refund',
+        action: 'create_refund_voucher_failed',
         error: errorMsg,
         stack: errorStack,
         userId: request.userId,
