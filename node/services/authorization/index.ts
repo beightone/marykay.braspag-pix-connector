@@ -108,9 +108,11 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const notificationUrl = `https://marykay.myvtex.com/_v/notifications/braspag`
 
     let orderData: ExtractedOrderData | null = null
+    let merchantOrderId: string | undefined
 
     if (extended.orderId) {
       const orderSequence = `${extended.orderId}-01`
+      merchantOrderId = orderSequence
       const hublyConfig = {
         apiKey: this.deps.context.settings?.hublyApiKey,
         organizationId: this.deps.context.settings?.hublyOrganizationId,
@@ -195,6 +197,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         notificationUrl,
         monitfyConsultantId: orderData?.consultantId,
         braspagId: orderData?.braspagId,
+        mdr: orderData?.splitProfitPct,
+        orderId: merchantOrderId ?? authorization.orderId,
         splitProfitPct: orderData?.splitProfitPct,
         splitDiscountPct: orderData?.splitDiscountPct,
         itemsSubtotal: orderData?.itemsSubtotal,

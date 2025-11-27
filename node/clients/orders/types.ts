@@ -56,6 +56,7 @@ export interface SplitSimulationData {
 export interface ExtractedOrderData {
   consultantId?: string
   splitProfitPct?: number
+  totalTaxes?: number
   splitDiscountPct?: number
   braspagId?: string
   itemsSubtotal?: number

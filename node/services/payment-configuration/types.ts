@@ -4,6 +4,8 @@ export interface MerchantSettings {
   merchantKey: string
   monitfyConsultantId?: string
   notificationUrl?: string
+  mdr?: number
+  fee?: number
 }
 
 export interface PaymentConfigurationProvider {

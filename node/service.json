@@ -13,14 +13,6 @@
     "health": {
       "path": "/_v/pix-connector/health",
       "public": true
-    },
-    "pixSplits": {
-      "path": "/_v/pix-connector/splits/:paymentId",
-      "public": true
-    },
-    "voucherRefund": {
-      "path": "/_v/pix-connector/refund/voucher",
-      "public": true
     }
   }
 }

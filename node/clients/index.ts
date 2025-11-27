@@ -7,7 +7,6 @@ import { OMSClient } from './orders'
 import { HublyClient } from './hubly'
 import { BraspagQueryClient } from './braspag-query'
 import { VtexGatewayClient } from './vtex-gateway'
-import { GiftcardsClient } from './giftcards'
 
 export class Clients extends IOClients {
   public get braspag() {
@@ -37,10 +36,6 @@ export class Clients extends IOClients {
   public get vtexGateway() {
     return this.getOrSet('vtexGateway', VtexGatewayClient)
   }
-
-  public get giftcards() {
-    return this.getOrSet('giftcards', GiftcardsClient)
-  }
 }
 
 const THIRTY_SECONDS = 30000
@@ -66,10 +61,6 @@ export const clients: ClientsConfig<Clients> = {
     },
     braspagQuery: {
       retries: 2,
-      timeout: THIRTY_SECONDS,
-    },
-    giftcards: {
-      retries: 3,
       timeout: THIRTY_SECONDS,
     },
   },

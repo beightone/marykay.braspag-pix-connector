@@ -15,8 +15,6 @@ export class Datadog extends ExternalClient {
 
   public save(data: any) {
 
-    console.log('payload', data)
-
     return this.http.post('/logs', data)
   }
 }

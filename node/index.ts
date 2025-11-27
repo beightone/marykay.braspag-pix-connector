@@ -4,7 +4,6 @@ import { method } from '@vtex/api'
 import { clients } from './clients'
 import BraspagConnector from './connector'
 import { notifications, parseBody, pixSplits } from './middlewares'
-import { voucherRefundHandler } from './middlewares/voucher-refund'
 import { health } from './tools/health'
 
 const service = new PaymentProviderService({
@@ -19,9 +18,6 @@ const service = new PaymentProviderService({
     }),
     pixSplits: method({
       GET: [pixSplits],
-    }),
-    voucherRefund: method({
-      POST: [voucherRefundHandler],
     }),
   },
 })

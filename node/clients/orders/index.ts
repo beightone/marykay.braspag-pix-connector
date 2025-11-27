@@ -36,11 +36,11 @@ export class OMSClient extends OMS {
   }
 
   public async cancelOrderInVtex(orderId: string, reason?: string): Promise<void> {
-    const cancelReason = reason ?? 'Reembolso via voucher'
+    const cancelReason = reason ?? 'Reembolso do pedido'
     const startTime = Date.now()
 
     this.logger.info('[OMS_CLIENT] Cancelling order in VTEX', {
-      flow: 'voucher_refund',
+      flow: 'order_cancellation',
       action: 'cancel_order',
       orderId,
       reason: cancelReason,
@@ -61,7 +61,7 @@ export class OMSClient extends OMS {
       const duration = Date.now() - startTime
 
       this.logger.info('[OMS_CLIENT] Order cancelled successfully', {
-        flow: 'voucher_refund',
+        flow: 'order_cancellation',
         action: 'order_cancelled',
         orderId,
         reason: cancelReason,
@@ -73,7 +73,7 @@ export class OMSClient extends OMS {
       const errorStack = error instanceof Error ? error.stack : undefined
 
       this.logger.error('[OMS_CLIENT] Failed to cancel order', error, {
-        flow: 'voucher_refund',
+        flow: 'order_cancellation',
         action: 'cancel_order_failed',
         error: errorMsg,
         stack: errorStack,
