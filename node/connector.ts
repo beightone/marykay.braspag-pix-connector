@@ -234,36 +234,6 @@ export default class BraspagConnector extends PaymentProvider<
         storedPayment.pixPaymentId
       )
 
-      const isSplitError =
-        voidResponse.ProviderReturnCode === 'BP335' ||
-        voidResponse.ReasonCode === 37 ||
-        voidResponse.ReasonMessage === 'SplitTransactionalError'
-
-      if (isSplitError) {
-        this.logger.warn('[PIX_REFUND] Split transactional error detected', {
-          flow: 'refund',
-          action: 'split_error_detected',
-          paymentId: refund.paymentId,
-          pixPaymentId: storedPayment.pixPaymentId,
-          providerReturnCode: voidResponse.ProviderReturnCode,
-          reasonCode: voidResponse.ReasonCode,
-          reasonMessage: voidResponse.ReasonMessage,
-        })
-
-        const errorDetails = JSON.stringify({
-          providerReturnCode: voidResponse.ProviderReturnCode,
-          providerReturnMessage: voidResponse.ProviderReturnMessage,
-          reasonCode: voidResponse.ReasonCode,
-          reasonMessage: voidResponse.ReasonMessage,
-          voidSplitErrors: voidResponse.VoidSplitErrors,
-        })
-
-        return Refunds.deny(refund, {
-          code: 'BP335',
-          message: `PIX refund failed due to split transactional error. Details: ${errorDetails}`,
-        })
-      }
-
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
 
       this.logger.info('[PIX_REFUND] Refund approved', {

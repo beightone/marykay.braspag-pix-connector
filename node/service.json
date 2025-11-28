@@ -13,6 +13,10 @@
     "health": {
       "path": "/_v/pix-connector/health",
       "public": true
+    },
+    "orderCancellationConfig": {
+      "path": "/_v/pix-connector/order-cancellation-config/:orderId",
+      "public": true
     }
   }
 }

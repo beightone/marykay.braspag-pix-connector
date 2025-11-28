@@ -112,6 +112,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
 
     if (extended.orderId) {
       const orderSequence = `${extended.orderId}-01`
+
       merchantOrderId = orderSequence
       const hublyConfig = {
         apiKey: this.deps.context.settings?.hublyApiKey,
@@ -136,6 +137,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           (orderData?.shippingValue ?? 0) === 0 &&
           (orderData?.couponDiscount ?? 0) > 0
 
+        console.log('orderData gotardo', orderData)
         this.deps.logger.info('[PIX_AUTH] Order data extracted', {
           flow: 'authorization',
           action: 'order_data_extracted',

@@ -92,6 +92,16 @@ export class OMSClient extends OMS {
     logger?: DatadogCompatibleLogger
   ): Promise<ExtractedOrderData> {
     const order = await this.getOrder(orderId)
+
+    logger?.info('ORDER_EXTRACT: Order data extracted', {
+      orderId,
+      flow: 'order_extraction',
+      action: 'order_data_extracted',
+      order,
+    })
+
+    console.dir(order, { depth: null, colors: true })
+
     const customApps = order.customData?.customApps ?? []
 
     const consultantApp = customApps.find((app) => app.id === 'consultant')

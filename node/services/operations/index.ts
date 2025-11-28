@@ -15,6 +15,7 @@ import {
 } from './types'
 import { PaymentStatusHandler } from '../payment-status-handler'
 import { QueryPixStatusResponse } from '../../clients/braspag/types'
+
 export class BraspagPixOperationsService implements PixOperationsService {
   constructor(private readonly deps: PixOperationsServiceDependencies) {}
 
@@ -105,32 +106,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      // If paid, perform total void (refund)
       if (currentStatus === 2) {
         try {
           const voidResponse = await braspagClient.voidPixPayment(
             payment.PaymentId as string
           )
-
-          const isSplitError =
-            voidResponse.ProviderReturnCode === 'BP335' ||
-            voidResponse.ReasonCode === 37 ||
-            voidResponse.ReasonMessage === 'SplitTransactionalError'
-
-          if (isSplitError) {
-            const errorDetails = JSON.stringify({
-              providerReturnCode: voidResponse.ProviderReturnCode,
-              providerReturnMessage: voidResponse.ProviderReturnMessage,
-              reasonCode: voidResponse.ReasonCode,
-              reasonMessage: voidResponse.ReasonMessage,
-              voidSplitErrors: voidResponse.VoidSplitErrors,
-            })
-
-            return Cancellations.deny(cancellation, {
-              code: 'BP335',
-              message: `PIX cancellation failed due to split transactional error. Details: ${errorDetails}`,
-            })
-          }
 
           await this.deps.storageService.updatePaymentStatus(
             cancellation.paymentId,
@@ -143,34 +123,6 @@ export class BraspagPixOperationsService implements PixOperationsService {
             message: 'PIX total void requested successfully',
           })
         } catch (error) {
-          const errorResponse = error?.response?.data as
-            | {
-                ProviderReturnCode?: string
-                ReasonCode?: number
-                ReasonMessage?: string
-                VoidSplitErrors?: Array<{ Code: number; Message: string }>
-              }
-            | undefined
-
-          const isSplitError =
-            errorResponse?.ProviderReturnCode === 'BP335' ||
-            errorResponse?.ReasonCode === 37 ||
-            errorResponse?.ReasonMessage === 'SplitTransactionalError'
-
-          if (isSplitError) {
-            const errorDetails = JSON.stringify({
-              providerReturnCode: errorResponse?.ProviderReturnCode,
-              reasonCode: errorResponse?.ReasonCode,
-              reasonMessage: errorResponse?.ReasonMessage,
-              voidSplitErrors: errorResponse?.VoidSplitErrors,
-            })
-
-            return Cancellations.deny(cancellation, {
-              code: 'BP335',
-              message: `PIX cancellation failed due to split transactional error. Details: ${errorDetails}`,
-            })
-          }
-
           throw error
         }
       }

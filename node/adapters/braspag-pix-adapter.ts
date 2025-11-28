@@ -88,8 +88,6 @@ export class BraspagPixRequestBuilder {
    * Set merchant order ID, preferring explicit config orderId when provided
    */
   public setMerchantOrderId(orderId?: string): this {
-    console.log('orderId', orderId)
-    console.log('this.authorization.orderId', this.authorization.orderId)
     this.request.MerchantOrderId = orderId ?? this.authorization.orderId
 
     return this
@@ -221,8 +219,8 @@ export class BraspagPixRequestBuilder {
     }
 
     const shippingValue = config.shippingValue ?? 0
-    const consultantAmount = Math.max(0, totalAmount - shippingValue)
-    const maryKayAmount = shippingValue
+    const shippingAmount = Math.min(shippingValue, totalAmount)
+    const consultantAmount = totalAmount - shippingAmount
 
     if (logger) {
       logger.info('[BRASPAG_ADAPTER] Split amounts calculated', {
@@ -230,25 +228,42 @@ export class BraspagPixRequestBuilder {
         action: 'split_amounts_calculated',
         totalAmount,
         shippingValue,
+        shippingAmount,
         consultantAmount,
-        maryKayAmount,
-        totalSplit: consultantAmount + maryKayAmount,
-        difference: totalAmount - (consultantAmount + maryKayAmount),
+        totalSplit: consultantAmount + shippingAmount,
+        difference: totalAmount - (consultantAmount + shippingAmount),
       })
     }
 
-    const splits: SplitPaymentEntry[] = [
+    if (consultantAmount <= 0) {
+      if (logger) {
+        logger.info('[BRASPAG_ADAPTER] Skipping split - no consultant amount', {
+          flow: 'authorization',
+          action: 'skip_split_no_consultant_amount',
+          totalAmount,
+          shippingValue,
+          shippingAmount,
+          consultantAmount,
+        })
+      }
+
+      return []
+    }
+
+    const splits: SplitPaymentEntry[] = []
+
+    splits.push(
       MaryKaySplitCalculator.createConsultantSplit(
         consultantAmount,
         subordinateMerchantId,
         config.mdr ?? 0,
         config.fee ?? 0
-      ),
-    ]
+      )
+    )
 
-    if (shippingValue > 0) {
+    if (shippingAmount > 0) {
       splits.push(
-        MaryKaySplitCalculator.createMaryKayShippingSplit(maryKayAmount)
+        MaryKaySplitCalculator.createMaryKayShippingSplit(shippingAmount)
       )
     }
 
