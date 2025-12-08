@@ -244,7 +244,7 @@ export class BraspagPixRequestBuilder {
           shippingValue,
           shippingAmount,
           consultantAmount,
-        })
+      })
       }
 
       return []
