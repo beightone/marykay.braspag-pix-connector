@@ -11,14 +11,43 @@ export class Logger {
     this.ctx = ctx
     this.datadog = datadog
 
-    this.enabled = ctx.vtex?.workspace === 'master'
+    this.enabled = ctx.vtex?.workspace !== 'master'
+
+    this.local(
+      '[DATADOG] Logger initialized',
+      {
+        workspace: ctx.vtex?.workspace,
+        enabled: this.enabled,
+      },
+      'INFO'
+    )
   }
 
   private async catchError(data: unknown) {
     try {
-      await this.datadog.save(data)
+      const result = await this.datadog.save(data)
+
+      this.local(
+        '[DATADOG] Log sent successfully',
+        { workspace: this.ctx.vtex?.workspace, enabled: this.enabled },
+        'INFO'
+      )
+
+      return result
     } catch (err) {
-      // ignore
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      const errorStack = err instanceof Error ? err.stack : undefined
+
+      this.local(
+        '[DATADOG] Failed to send log',
+        {
+          workspace: this.ctx.vtex?.workspace,
+          enabled: this.enabled,
+          error: errorMessage,
+          stack: errorStack,
+        },
+        'ERROR'
+      )
     }
   }
 
@@ -30,26 +59,85 @@ export class Logger {
     )
   }
 
-  public info = (title: string, content: unknown, options?: DatadogOptions) => {
-    if (!this.enabled) return this.local(title, content, 'INFO')
+  public info = (
+    title: string,
+    content?: unknown,
+    options?: DatadogOptions
+  ) => {
+    this.local(title, content ?? {}, 'INFO')
 
-    this.catchError(this.parseData({ title, content, type: 'INFO', options }))
+    if (!this.enabled) return
+
+    const mergedOptions: DatadogOptions = {
+      ...options,
+      metadata: {
+        ...(typeof content === 'object' && content !== null ? content : {}),
+        ...options?.metadata,
+      },
+    }
+
+    this.catchError(
+      this.parseData({
+        title,
+        content: content ?? {},
+        type: 'INFO',
+        options: mergedOptions,
+      })
+    )
   }
 
-  public warn = (title: string, content: unknown, options?: DatadogOptions) => {
-    if (!this.enabled) return this.local(title, content, 'WARN')
+  public warn = (
+    title: string,
+    content?: unknown,
+    options?: DatadogOptions
+  ) => {
+    this.local(title, content ?? {}, 'WARN')
 
-    this.catchError(this.parseData({ title, content, type: 'WARN', options }))
+    if (!this.enabled) return
+
+    const mergedOptions: DatadogOptions = {
+      ...options,
+      metadata: {
+        ...(typeof content === 'object' && content !== null ? content : {}),
+        ...options?.metadata,
+      },
+    }
+
+    this.catchError(
+      this.parseData({
+        title,
+        content: content ?? {},
+        type: 'WARN',
+        options: mergedOptions,
+      })
+    )
   }
 
   public error = (
     title: string,
-    content: unknown,
+    content?: unknown,
     options?: DatadogOptions
   ) => {
-    if (!this.enabled) return this.local(title, content, 'ERROR')
+    this.local(title, content ?? {}, 'ERROR')
 
-    this.catchError(this.parseData({ title, content, type: 'ERROR', options }))
+    if (!this.enabled) return
+
+    const mergedOptions: DatadogOptions = {
+      ...options,
+      metadata: {
+        ...(typeof content === 'object' && content !== null ? content : {}),
+        ...options?.metadata,
+      },
+    }
+
+    this.catchError(
+      this.parseData({
+        title,
+        content: content ?? {},
+        type: 'ERROR',
+        options: mergedOptions,
+      })
+    )
   }
 
   private parseData(params: {

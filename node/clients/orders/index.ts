@@ -4,10 +4,14 @@ import type { AuthMethod, OrderDetailResponse } from '@vtex/clients'
 
 import { ExtractedOrderData } from './types'
 import { HublyClient } from '../hubly'
-import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
+import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
+import { Logger } from '../../tools/datadog/datadog'
+import { Datadog } from '../datadog'
+import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types';
 
 export class OMSClient extends OMS {
   private hublyClient: HublyClient
+  private logger: DatadogCompatibleLogger
 
   constructor(ctx: IOContext, options?: InstanceOptions) {
     super(ctx, {
@@ -19,6 +23,10 @@ export class OMSClient extends OMS {
     })
 
     this.hublyClient = new HublyClient(ctx, options)
+    const datadogClient = new Datadog(ctx, options)
+    const datadogLogger = new Logger(ctx as any, datadogClient)
+
+    this.logger = new DatadogLoggerAdapter(datadogLogger)
   }
 
   private readonly defaultAuthMethod: AuthMethod = 'AUTH_TOKEN'
@@ -28,10 +36,12 @@ export class OMSClient extends OMS {
   }
 
   public async cancelOrderInVtex(orderId: string, reason?: string): Promise<void> {
-    const cancelReason = reason ?? 'Reembolso via voucher'
+    const cancelReason = reason ?? 'Reembolso do pedido'
     const startTime = Date.now()
 
-    console.log('OMS_CLIENT: Cancelling order in VTEX', {
+    this.logger.info('[OMS_CLIENT] Cancelling order in VTEX', {
+      flow: 'order_cancellation',
+      action: 'cancel_order',
       orderId,
       reason: cancelReason,
       endpoint: `/api/oms/pvt/orders/${orderId}/cancel`,
@@ -50,7 +60,9 @@ export class OMSClient extends OMS {
 
       const duration = Date.now() - startTime
 
-      console.log('OMS_CLIENT: Order cancelled successfully', {
+      this.logger.info('[OMS_CLIENT] Order cancelled successfully', {
+        flow: 'order_cancellation',
+        action: 'order_cancelled',
         orderId,
         reason: cancelReason,
         duration,
@@ -60,7 +72,9 @@ export class OMSClient extends OMS {
       const errorMsg = error instanceof Error ? error.message : String(error)
       const errorStack = error instanceof Error ? error.stack : undefined
 
-      console.error('OMS_CLIENT: Failed to cancel order', {
+      this.logger.error('[OMS_CLIENT] Failed to cancel order', error, {
+        flow: 'order_cancellation',
+        action: 'cancel_order_failed',
         error: errorMsg,
         stack: errorStack,
         orderId,
@@ -78,6 +92,16 @@ export class OMSClient extends OMS {
     logger?: DatadogCompatibleLogger
   ): Promise<ExtractedOrderData> {
     const order = await this.getOrder(orderId)
+
+    logger?.info('ORDER_EXTRACT: Order data extracted', {
+      orderId,
+      flow: 'order_extraction',
+      action: 'order_data_extracted',
+      order,
+    })
+
+    console.dir(order, { depth: null, colors: true })
+
     const customApps = order.customData?.customApps ?? []
 
     const consultantApp = customApps.find((app) => app.id === 'consultant')
@@ -150,7 +174,9 @@ export class OMSClient extends OMS {
         const apiKey = hublyConfig?.apiKey
         const organizationId = hublyConfig?.organizationId
 
-        console.log('HUBLY: Fetching consultant data', {
+        this.logger.info('[HUBLY] Fetching consultant data', {
+          flow: 'authorization',
+          action: 'fetch_consultant_data',
           consultantId,
           organizationId,
           hasApiKey: !!apiKey,
@@ -163,25 +189,34 @@ export class OMSClient extends OMS {
           organizationId
         )
 
-        console.log('HUBLY: Consultant data received', {
+        this.logger.info('[HUBLY] Consultant data received', {
+          flow: 'authorization',
+          action: 'consultant_data_received',
           consultantId,
           additionalInfoCount: consultantData.additionalInfo?.length ?? 0,
         })
 
         braspagId = this.hublyClient.getBraspagIdFromConsultant(consultantData)
 
-        console.log('HUBLY: Braspag ID extracted', {
+        this.logger.info('[HUBLY] Braspag ID extracted', {
+          flow: 'authorization',
+          action: 'braspag_id_extracted',
           consultantId,
           braspagId,
         })
       } catch (error) {
-        console.error('HUBLY: Failed to fetch consultant data', {
+        this.logger.error('[HUBLY] Failed to fetch consultant data', error, {
+          flow: 'authorization',
+          action: 'fetch_consultant_data_failed',
           consultantId,
           error: error instanceof Error ? error.message : String(error),
         })
       }
     } else {
-      console.log('HUBLY: Skipping fetch - missing consultantId')
+      this.logger.info('[HUBLY] Skipping fetch - missing consultantId', {
+        flow: 'authorization',
+        action: 'skip_consultant_fetch',
+      })
     }
 
     const isFreeShippingCoupon = shippingValue === 0 && couponDiscount > 0

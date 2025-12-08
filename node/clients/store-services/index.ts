@@ -1,6 +1,11 @@
 import { ExternalClient, IOContext, InstanceOptions } from '@vtex/api'
 
-import { SimulateSplitRequest, SimulateSplitResponse } from './types'
+import {
+  EncryptOrderInfosRequest,
+  EncryptOrderInfosResponse,
+  SimulateSplitRequest,
+  SimulateSplitResponse,
+} from './types'
 
 export class StoreServicesClient extends ExternalClient {
   constructor(context: IOContext, options?: InstanceOptions) {
@@ -65,6 +70,37 @@ export class StoreServicesClient extends ExternalClient {
         notification,
         error: error instanceof Error ? error.message : error,
       })
+      throw error
+    }
+  }
+
+  public async encryptOrderInfos(payload: EncryptOrderInfosRequest) {
+    const { logger } = this.context as any
+
+    try {
+      logger?.info('STORE_SERVICES_ENCRYPT_ORDER_INFOS_REQUEST', {
+        orderId: payload.orderId,
+        consultantCode: payload.consultantCode,
+      })
+
+      const url = `https://${this.context.workspace}--${this.context.account}.myvtex.com/_v/encrypt`
+
+      const response = await this.http.post<EncryptOrderInfosResponse>(
+        url,
+        payload
+      )
+
+      logger?.info('STORE_SERVICES_ENCRYPT_ORDER_INFOS_SUCCESS', {
+        orderId: payload.orderId,
+      })
+
+      return response
+    } catch (error) {
+      logger?.error('STORE_SERVICES_ENCRYPT_ORDER_INFOS_FAILED', {
+        orderId: payload.orderId,
+        error: error instanceof Error ? error.message : error,
+      })
+
       throw error
     }
   }

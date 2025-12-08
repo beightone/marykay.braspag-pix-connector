@@ -15,7 +15,6 @@ import {
 } from './types'
 import { PaymentStatusHandler } from '../payment-status-handler'
 import { QueryPixStatusResponse } from '../../clients/braspag/types'
-import { VoucherRefundServiceFactory } from '../voucher-refund'
 
 export class BraspagPixOperationsService implements PixOperationsService {
   constructor(private readonly deps: PixOperationsServiceDependencies) {}
@@ -107,117 +106,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      // If paid, perform total void (refund)
       if (currentStatus === 2) {
         try {
           const voidResponse = await braspagClient.voidPixPayment(
             payment.PaymentId as string
           )
-
-          const isSplitError =
-            voidResponse.ProviderReturnCode === 'BP335' ||
-            voidResponse.ReasonCode === 37 ||
-            voidResponse.ReasonMessage === 'SplitTransactionalError'
-
-          if (isSplitError) {
-            this.deps.logger.warn(
-              '[PIX_CANCEL] Split error detected, triggering voucher generation',
-              {
-                flow: 'cancellation',
-                action: 'split_error_detected',
-                paymentId: cancellation.paymentId,
-                pixPaymentId: storedPayment.pixPaymentId,
-                providerReturnCode: voidResponse.ProviderReturnCode,
-                reasonCode: voidResponse.ReasonCode,
-                reasonMessage: voidResponse.ReasonMessage,
-              }
-            )
-
-            if (this.deps.ordersClient && this.deps.giftcardsClient) {
-              try {
-                const orderId =
-                  storedPayment.orderId ?? storedPayment.merchantOrderId
-
-                const orderSequence = `${orderId}-01`
-
-                const order = await this.deps.ordersClient.getOrder(
-                  orderSequence
-                )
-
-                const userId =
-                  (order as any)?.clientProfileData?.userProfileId ||
-                  (order as any)?.clientProfileData?.id ||
-                  order.orderId
-
-                const refundValue = storedPayment.amount ?? 0
-
-                const voucherRefundService = VoucherRefundServiceFactory.create(
-                  {
-                    giftcardsClient: this.deps.giftcardsClient,
-                    ordersClient: {
-                      cancelOrderInVtex: this.deps.ordersClient.cancelOrderInVtex.bind(
-                        this.deps.ordersClient
-                      ),
-                    },
-                    storageService: this.deps.storageService,
-                    logger: this.deps.logger,
-                  }
-                )
-
-                const voucherResult = await voucherRefundService.processVoucherRefund(
-                  {
-                    orderId,
-                    paymentId: cancellation.paymentId,
-                    userId: userId.toString(),
-                    refundValue,
-                  }
-                )
-
-                this.deps.logger.info(
-                  '[PIX_CANCEL] Voucher generated successfully',
-                  {
-                    flow: 'cancellation',
-                    action: 'voucher_generated',
-                    paymentId: cancellation.paymentId,
-                    orderId,
-                    giftCardId: voucherResult.giftCardId,
-                    redemptionCode: voucherResult.redemptionCode,
-                    refundValue,
-                  }
-                )
-
-                return Cancellations.approve(cancellation, {
-                  cancellationId: payment.PaymentId as string,
-                  code: 'BP335',
-                  message: `Seu pedido foi cancleado! Voucher criado: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
-                })
-              } catch (voucherError) {
-                this.deps.logger.error(
-                  'PIX CANCELLATION: Failed to generate voucher automatically',
-                  voucherError,
-                  {
-                    paymentId: cancellation.paymentId,
-                    orderId:
-                      storedPayment.orderId ?? storedPayment.merchantOrderId,
-                  }
-                )
-              }
-            }
-
-            const errorDetails = JSON.stringify({
-              providerReturnCode: voidResponse.ProviderReturnCode,
-              providerReturnMessage: voidResponse.ProviderReturnMessage,
-              reasonCode: voidResponse.ReasonCode,
-              reasonMessage: voidResponse.ReasonMessage,
-              voidSplitErrors: voidResponse.VoidSplitErrors,
-              requiresVoucherRefund: true,
-            })
-
-            return Cancellations.deny(cancellation, {
-              code: 'BP335',
-              message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
-            })
-          }
 
           await this.deps.storageService.updatePaymentStatus(
             cancellation.paymentId,
@@ -230,124 +123,6 @@ export class BraspagPixOperationsService implements PixOperationsService {
             message: 'PIX total void requested successfully',
           })
         } catch (error) {
-          const errorResponse = error?.response?.data as
-            | {
-                ProviderReturnCode?: string
-                ReasonCode?: number
-                ReasonMessage?: string
-                VoidSplitErrors?: Array<{ Code: number; Message: string }>
-              }
-            | undefined
-
-          const isSplitError =
-            errorResponse?.ProviderReturnCode === 'BP335' ||
-            errorResponse?.ReasonCode === 37 ||
-            errorResponse?.ReasonMessage === 'SplitTransactionalError'
-
-          if (isSplitError) {
-            this.deps.logger.warn(
-              '[PIX_CANCEL] Split error detected in exception, triggering voucher generation',
-              {
-                flow: 'cancellation',
-                action: 'split_error_in_exception',
-                paymentId: cancellation.paymentId,
-                pixPaymentId: storedPayment.pixPaymentId,
-                providerReturnCode: errorResponse?.ProviderReturnCode,
-                reasonCode: errorResponse?.ReasonCode,
-                reasonMessage: errorResponse?.ReasonMessage,
-              }
-            )
-
-            if (this.deps.ordersClient && this.deps.giftcardsClient) {
-              try {
-                const orderId =
-                  storedPayment.orderId ?? storedPayment.merchantOrderId
-
-                const orderSequence = `${orderId}-01`
-
-                const order = await this.deps.ordersClient.getOrder(
-                  orderSequence
-                )
-
-                const userId =
-                  (order as any)?.clientProfileData?.userProfileId ||
-                  (order as any)?.clientProfileData?.id ||
-                  order.orderId
-
-                const refundValue = storedPayment.amount ?? 0
-
-                const voucherRefundService = VoucherRefundServiceFactory.create(
-                  {
-                    giftcardsClient: this.deps.giftcardsClient,
-                    ordersClient: {
-                      cancelOrderInVtex: this.deps.ordersClient.cancelOrderInVtex.bind(
-                        this.deps.ordersClient
-                      ),
-                    },
-                    storageService: this.deps.storageService,
-                    logger: this.deps.logger,
-                  }
-                )
-
-                const voucherResult = await voucherRefundService.processVoucherRefund(
-                  {
-                    orderId,
-                    paymentId: cancellation.paymentId,
-                    userId: userId.toString(),
-                    refundValue,
-                  }
-                )
-
-                this.deps.logger.info(
-                  '[PIX_CANCEL] Voucher generated successfully (exception handler)',
-                  {
-                    flow: 'cancellation',
-                    action: 'voucher_generated_from_exception',
-                    paymentId: cancellation.paymentId,
-                    orderId,
-                    giftCardId: voucherResult.giftCardId,
-                    redemptionCode: voucherResult.redemptionCode,
-                    refundValue,
-                  }
-                )
-
-                return Cancellations.approve(cancellation, {
-                  cancellationId: storedPayment.pixPaymentId,
-                  code: 'BP335',
-                  message: `PIX cancellation processed via voucher due to split error. Gift Card ID: ${voucherResult.giftCardId}, Redemption Code: ${voucherResult.redemptionCode}`,
-                })
-              } catch (voucherError) {
-                this.deps.logger.error(
-                  '[PIX_CANCEL] Voucher generation failed (exception handler)',
-                  {
-                    flow: 'cancellation',
-                    action: 'voucher_generation_failed_from_exception',
-                    paymentId: cancellation.paymentId,
-                    orderId:
-                      storedPayment.orderId ?? storedPayment.merchantOrderId,
-                    error:
-                      voucherError instanceof Error
-                        ? voucherError.message
-                        : String(voucherError),
-                  }
-                )
-              }
-            }
-
-            const errorDetails = JSON.stringify({
-              providerReturnCode: errorResponse?.ProviderReturnCode,
-              reasonCode: errorResponse?.ReasonCode,
-              reasonMessage: errorResponse?.ReasonMessage,
-              voidSplitErrors: errorResponse?.VoidSplitErrors,
-              requiresVoucherRefund: true,
-            })
-
-            return Cancellations.deny(cancellation, {
-              code: 'BP335',
-              message: `Cancel aborted by Split transactional error. Please use voucher refund instead. Details: ${errorDetails}`,
-            })
-          }
-
           throw error
         }
       }

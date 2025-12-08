@@ -3,11 +3,15 @@
  */
 export interface BraspagPixAdapterConfig {
   merchantId: string
+  orderId?: string
   monitfyConsultantId?: string
   braspagId?: string
   notificationUrl?: string
+  mdr?: number
+  fee?: number
   splitProfitPct?: number
   splitDiscountPct?: number
+  totalTaxes?: number
   itemsSubtotal?: number
   discountsSubtotal?: number
   shippingValue?: number
@@ -57,6 +61,7 @@ export interface MaryKayCustomData {
  */
 export interface AuthorizationWithSplits {
   transactionId: string
+  orderId?: string
   value: number
   splits?: SplitTransaction[]
   customData?: MaryKayCustomData

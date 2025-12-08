@@ -17,13 +17,24 @@ export class DatadogLoggerAdapter implements DatadogCompatibleLogger {
     error?: Error | unknown,
     metadata?: Record<string, unknown>
   ): void {
-    const errorMeta = {
-      ...metadata,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+    const isError = error instanceof Error
+    const isSecondArgObject = !isError && typeof error === 'object' && error !== null
+
+    if (isSecondArgObject && metadata === undefined) {
+      this.datadogLogger.error(message, error as Record<string, unknown>)
+      return
     }
 
-    this.datadogLogger.error(message, errorMeta)
+    const meta: Record<string, unknown> = { ...(metadata ?? {}) }
+
+    if (isError) {
+      meta.error = error.message
+      if (error.stack) meta.stack = error.stack
+    } else if (error !== undefined) {
+      meta.error = error
+    }
+
+    this.datadogLogger.error(message, meta)
   }
 
   public debug(message: string, metadata?: Record<string, unknown>): void {
