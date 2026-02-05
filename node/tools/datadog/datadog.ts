@@ -11,7 +11,7 @@ export class Logger {
     this.ctx = ctx
     this.datadog = datadog
 
-    this.enabled = ctx.vtex?.workspace !== 'master'
+    this.enabled = ctx.vtex?.workspace === 'master'
 
     this.local(
       '[DATADOG] Logger initialized',
