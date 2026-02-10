@@ -61,7 +61,7 @@ export class BraspagAuthenticator {
       this.accessToken = authData.access_token
       this.tokenExpiry = new Date(Date.now() + authData.expires_in * 1000)
 
-      this.logger.info('BRASPAG.AUTH.SUCCESS', {
+      this.logger.info('[BRASPAG_AUTH] Authentication successful', {
         flow: 'braspag_auth',
         action: 'authentication_success',
         environment: this.config.isProduction ? 'production' : 'sandbox',
@@ -71,7 +71,7 @@ export class BraspagAuthenticator {
 
       return this.accessToken
     } catch (error) {
-      this.logger.error('BRASPAG.AUTH.FAILED', {
+      this.logger.error('[BRASPAG_AUTH] Authentication failed', {
         flow: 'braspag_auth',
         action: 'authentication_failed',
         environment: this.config.isProduction ? 'production' : 'sandbox',

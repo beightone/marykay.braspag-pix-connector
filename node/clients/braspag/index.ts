@@ -64,7 +64,7 @@ export class BraspagClient extends ExternalClient {
         { headers }
       )
 
-      this.logger.info('BRASPAG.API.PIX_CREATED', {
+      this.logger.info('[BRASPAG] PIX sale created', {
         flow: 'braspag_api',
         action: 'pix_sale_created',
         merchantOrderId: payload.MerchantOrderId,
@@ -76,7 +76,7 @@ export class BraspagClient extends ExternalClient {
 
       return response
     } catch (error) {
-      this.logger.error('BRASPAG.API.PIX_CREATE_FAILED', {
+      this.logger.error('[BRASPAG] PIX sale creation failed', {
         flow: 'braspag_api',
         action: 'pix_sale_creation_failed',
         merchantOrderId: payload.MerchantOrderId,
@@ -109,7 +109,7 @@ export class BraspagClient extends ExternalClient {
       const statusCode = error?.response?.status
 
       if (statusCode === 404) {
-        this.logger.warn('BRASPAG.API.QUERY_NOT_FOUND', {
+        this.logger.warn('[BRASPAG] Payment not found (404)', {
           flow: 'braspag_api',
           action: 'payment_not_found',
           paymentId,
@@ -118,7 +118,7 @@ export class BraspagClient extends ExternalClient {
         throw new Error(`Payment ${paymentId} not found in Braspag`)
       }
 
-      this.logger.error('BRASPAG.API.QUERY_FAILED', {
+      this.logger.error('[BRASPAG] Payment query failed', {
         flow: 'braspag_api',
         action: 'payment_query_failed',
         paymentId,
@@ -147,7 +147,7 @@ export class BraspagClient extends ExternalClient {
         response.ReasonMessage === 'SplitTransactionalError'
 
       if (isSplitError) {
-        this.logger.warn('BRASPAG.API.VOID_SPLIT_ERROR', {
+        this.logger.warn('[BRASPAG] Void split transactional error', {
           flow: 'braspag_api',
           action: 'void_split_error',
           paymentId,
@@ -157,7 +157,7 @@ export class BraspagClient extends ExternalClient {
           durationMs: Date.now() - startTime,
         })
       } else {
-        this.logger.info('BRASPAG.API.VOID_SUCCESS', {
+        this.logger.info('[BRASPAG] Payment voided successfully', {
           flow: 'braspag_api',
           action: 'payment_voided',
           paymentId,
@@ -178,7 +178,7 @@ export class BraspagClient extends ExternalClient {
           errorData.ReasonMessage === 'SplitTransactionalError'
 
         if (isSplitError) {
-          this.logger.warn('BRASPAG.API.VOID_SPLIT_ERROR', {
+          this.logger.warn('[BRASPAG] Void split error from exception', {
             flow: 'braspag_api',
             action: 'void_split_error_from_exception',
             paymentId,
@@ -192,7 +192,7 @@ export class BraspagClient extends ExternalClient {
         }
       }
 
-      this.logger.error('BRASPAG.API.VOID_FAILED', {
+      this.logger.error('[BRASPAG] Void payment failed', {
         flow: 'braspag_api',
         action: 'void_payment_failed',
         paymentId,

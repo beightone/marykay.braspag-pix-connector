@@ -197,7 +197,7 @@ export class BraspagPixRequestBuilder {
 
     if (!subordinateMerchantId) {
       if (logger) {
-        logger.warn('PIX.SPLIT.SKIPPED_NO_MERCHANT', {
+        logger.warn('[SPLIT] Skipped - no merchant subordinate ID', {
           flow: 'authorization',
           action: 'split_skipped_no_merchant_id',
           hasBraspagId: !!config.braspagId,
@@ -215,7 +215,7 @@ export class BraspagPixRequestBuilder {
 
     if (consultantAmount <= 0) {
       if (logger) {
-        logger.warn('PIX.SPLIT.SKIPPED_ZERO_CONSULTANT', {
+        logger.warn('[SPLIT] Skipped - zero consultant amount', {
           flow: 'authorization',
           action: 'split_skipped_zero_consultant_amount',
           totalAmountCents: totalAmount,
@@ -245,7 +245,7 @@ export class BraspagPixRequestBuilder {
     }
 
     if (logger) {
-      logger.info('PIX.SPLIT.CALCULATED', {
+      logger.info('[SPLIT] Split payments calculated', {
         flow: 'authorization',
         action: 'split_calculated',
         totalAmountCents: totalAmount,

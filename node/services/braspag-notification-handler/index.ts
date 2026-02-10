@@ -29,7 +29,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
       throw new Error('Invalid Braspag notification: missing required fields')
     }
 
-    this.logger.info('PIX.NOTIFY.RECEIVED', {
+    this.logger.info('[NOTIFICATION] Received', {
       flow: 'notification',
       action: 'notification_received',
       paymentId: PaymentId,
@@ -43,7 +43,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     const storedPayment = await this.getStoredPayment(PaymentId, context)
 
     if (!storedPayment) {
-      this.logger.warn('PIX.NOTIFY.PAYMENT_NOT_FOUND', {
+      this.logger.warn('[NOTIFICATION] Payment not found in storage', {
         flow: 'notification',
         action: 'payment_not_found',
         paymentId: PaymentId,
@@ -114,7 +114,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
 
       return storedPayment
     } catch (error) {
-      this.logger.error('PIX.NOTIFY.STORAGE_ERROR', error, {
+      this.logger.error('[NOTIFICATION] Storage read failed', error, {
         flow: 'notification',
         action: 'storage_read_failed',
         paymentId,
@@ -163,7 +163,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         break
 
       default:
-        this.logger.warn('PIX.NOTIFY.UNKNOWN_CHANGE_TYPE', {
+        this.logger.warn('[NOTIFICATION] Unknown change type', {
           flow: 'notification',
           action: 'unknown_change_type',
           paymentId: PaymentId,
@@ -211,7 +211,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           effectiveAmount = tx.Payment?.Amount
         }
 
-        this.logger.info('PIX.NOTIFY.BRASPAG_QUERY_FALLBACK', {
+        this.logger.info('[NOTIFICATION] Braspag query fallback used', {
           flow: 'notification',
           action: 'braspag_query_fallback',
           paymentId,
@@ -221,7 +221,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           notificationAmount: amount,
         })
       } catch (error) {
-        this.logger.warn('PIX.NOTIFY.BRASPAG_QUERY_FAILED', {
+        this.logger.warn('[NOTIFICATION] Braspag query fallback failed', {
           flow: 'notification',
           action: 'braspag_query_failed',
           paymentId,
@@ -239,18 +239,21 @@ export class BraspagNotificationHandler implements NotificationHandler {
       finalEffectiveAmount !== storedPayment.amount
 
     if (!statusChanged && !amountChanged) {
-      this.logger.info('PIX.NOTIFY.DUPLICATE', {
-        flow: 'notification',
-        action: 'duplicate_notification',
-        paymentId,
-        currentStatus: storedPayment.status,
-        currentStatusName: this.getStatusName(storedPayment.status),
-      })
+      this.logger.info(
+        '[NOTIFICATION] Status and amount unchanged, skipping update',
+        {
+          flow: 'notification',
+          action: 'duplicate_notification',
+          paymentId,
+          currentStatus: storedPayment.status,
+          currentStatusName: this.getStatusName(storedPayment.status),
+        }
+      )
 
       return
     }
 
-    this.logger.info('PIX.NOTIFY.STATUS_CHANGED', {
+    this.logger.info('[NOTIFICATION] Status changed', {
       flow: 'notification',
       action: 'status_transition',
       paymentId,
@@ -303,7 +306,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     ) {
       try {
         await context.clients.retry.ping(storedPayment.callbackUrl)
-        this.logger.info('PIX.NOTIFY.CALLBACK_SENT', {
+        this.logger.info('[NOTIFICATION] Callback sent to VTEX', {
           flow: 'notification',
           action: 'callback_ping_sent',
           paymentId,
@@ -312,7 +315,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           newStatusName: this.getStatusName(effectiveStatus),
         })
       } catch (error) {
-        this.logger.warn('PIX.NOTIFY.CALLBACK_FAILED', {
+        this.logger.warn('[NOTIFICATION] Callback to VTEX failed', {
           flow: 'notification',
           action: 'callback_ping_failed',
           paymentId,
@@ -322,14 +325,17 @@ export class BraspagNotificationHandler implements NotificationHandler {
         })
       }
     } else if (isFinalStatus) {
-      this.logger.info('PIX.NOTIFY.FINAL_STATUS', {
-        flow: 'notification',
-        action: 'final_status_reached',
-        paymentId,
-        vtexPaymentId: storedPayment.vtexPaymentId,
-        finalStatus: effectiveStatus,
-        finalStatusName: this.getStatusName(effectiveStatus),
-      })
+      this.logger.info(
+        '[NOTIFICATION] Final status reached, no callback needed',
+        {
+          flow: 'notification',
+          action: 'final_status_reached',
+          paymentId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          finalStatus: effectiveStatus,
+          finalStatusName: this.getStatusName(effectiveStatus),
+        }
+      )
     }
 
     // Process for PAID status - with PIX timing analysis and cancel protection
@@ -363,21 +369,24 @@ export class BraspagNotificationHandler implements NotificationHandler {
       // Prazo: 90 days from original payment.
       // ===================================================================
       if (wasAlreadyCancelled) {
-        this.logger.error('PIX.NOTIFY.PAID_AFTER_CANCEL', {
-          flow: 'notification',
-          action: 'paid_after_order_cancelled',
-          paymentId,
-          vtexPaymentId: storedPayment.vtexPaymentId,
-          orderId: storedPayment.orderId,
-          merchantOrderId: storedPayment.merchantOrderId,
-          amountCents: updatedPayment.amount,
-          cancelledAt: storedPayment.cancelledAt,
-          paidAt: new Date().toISOString(),
-          elapsedMinutes,
-          riskLevel: 'CRITICAL',
-          message:
-            'Customer paid AFTER order was cancelled in VTEX. Triggering automatic refund (devolução PIX) at Braspag.',
-        })
+        this.logger.error(
+          '[NOTIFICATION] CRITICAL: Customer paid after order cancelled',
+          {
+            flow: 'notification',
+            action: 'paid_after_order_cancelled',
+            paymentId,
+            vtexPaymentId: storedPayment.vtexPaymentId,
+            orderId: storedPayment.orderId,
+            merchantOrderId: storedPayment.merchantOrderId,
+            amountCents: updatedPayment.amount,
+            cancelledAt: storedPayment.cancelledAt,
+            paidAt: new Date().toISOString(),
+            elapsedMinutes,
+            riskLevel: 'CRITICAL',
+            message:
+              'Customer paid AFTER order was cancelled in VTEX. Triggering automatic refund (devolução PIX) at Braspag.',
+          }
+        )
 
         await this.triggerAutoRefund(paymentId, storedPayment, context)
 
@@ -385,24 +394,27 @@ export class BraspagNotificationHandler implements NotificationHandler {
       }
 
       if (isExpired) {
-        this.logger.error('PIX.NOTIFY.PAID_AFTER_EXPIRATION', {
-          flow: 'notification',
-          action: 'paid_after_pix_expired',
-          paymentId,
-          vtexPaymentId: storedPayment.vtexPaymentId,
-          orderId: storedPayment.orderId,
-          merchantOrderId: storedPayment.merchantOrderId,
-          amountCents: updatedPayment.amount,
-          elapsedMinutes,
-          elapsedMs,
-          createdAt: storedPayment.createdAt,
-          paidAt: new Date().toISOString(),
-          riskLevel: 'CRITICAL',
-          message:
-            'Customer paid AFTER PIX QR code expiration (2h). VTEX likely already cancelled the order. Manual reconciliation required.',
-        })
+        this.logger.error(
+          '[NOTIFICATION] CRITICAL: Customer paid after PIX expiration',
+          {
+            flow: 'notification',
+            action: 'paid_after_pix_expired',
+            paymentId,
+            vtexPaymentId: storedPayment.vtexPaymentId,
+            orderId: storedPayment.orderId,
+            merchantOrderId: storedPayment.merchantOrderId,
+            amountCents: updatedPayment.amount,
+            elapsedMinutes,
+            elapsedMs,
+            createdAt: storedPayment.createdAt,
+            paidAt: new Date().toISOString(),
+            riskLevel: 'CRITICAL',
+            message:
+              'Customer paid AFTER PIX QR code expiration (2h). VTEX likely already cancelled the order. Manual reconciliation required.',
+          }
+        )
       } else if (isLatePayment) {
-        this.logger.warn('PIX.NOTIFY.PAID_LATE', {
+        this.logger.warn('[NOTIFICATION] Late payment confirmed', {
           flow: 'notification',
           action: 'late_payment_confirmed',
           paymentId,
@@ -419,7 +431,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
             'Customer paid close to PIX expiration (>90min of 120min). Monitor for potential timing issues.',
         })
       } else {
-        this.logger.info('PIX.NOTIFY.PAID', {
+        this.logger.info('[NOTIFICATION] Payment confirmed', {
           flow: 'notification',
           action: 'payment_confirmed',
           paymentId,
@@ -453,7 +465,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
       // No forwarding to store-services here to avoid notification loops.
       // Split is automatically processed by Braspag during payment.
 
-      this.logger.info('PIX.NOTIFY.PAID_PROCESSED', {
+      this.logger.info('[NOTIFICATION] Payment processed successfully', {
         flow: 'notification',
         action: 'paid_processing_completed',
         paymentId: PaymentId,
@@ -462,7 +474,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         merchantOrderId: storedPayment.merchantOrderId,
       })
     } catch (error) {
-      this.logger.error('PIX.NOTIFY.PAID_PROCESSING_FAILED', error, {
+      this.logger.error('[NOTIFICATION] Payment processing failed', error, {
         flow: 'notification',
         action: 'paid_processing_failed',
         paymentId: PaymentId,
@@ -484,16 +496,19 @@ export class BraspagNotificationHandler implements NotificationHandler {
     context: NotificationContext
   ): Promise<void> {
     if (!context.clients.braspag?.voidPixPayment) {
-      this.logger.error('PIX.NOTIFY.AUTO_REFUND_NO_CLIENT', {
-        flow: 'notification',
-        action: 'auto_refund_no_void_client',
-        paymentId,
-        vtexPaymentId: storedPayment.vtexPaymentId,
-        orderId: storedPayment.orderId,
-        riskLevel: 'CRITICAL',
-        message:
-          'Cannot auto-refund: Braspag void client not available in notification context. MANUAL REFUND REQUIRED.',
-      })
+      this.logger.error(
+        '[NOTIFICATION] Auto-refund impossible - no Braspag client',
+        {
+          flow: 'notification',
+          action: 'auto_refund_no_void_client',
+          paymentId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          riskLevel: 'CRITICAL',
+          message:
+            'Cannot auto-refund: Braspag void client not available in notification context. MANUAL REFUND REQUIRED.',
+        }
+      )
 
       return
     }
@@ -522,7 +537,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         )
       }
 
-      this.logger.info('PIX.NOTIFY.AUTO_REFUND_SUCCESS', {
+      this.logger.info('[NOTIFICATION] Auto-refund triggered successfully', {
         flow: 'notification',
         action: 'auto_refund_triggered',
         paymentId,
@@ -536,23 +551,26 @@ export class BraspagNotificationHandler implements NotificationHandler {
           'Auto-refund (devolução PIX) triggered successfully. Customer will receive the money back.',
       })
     } catch (refundError) {
-      this.logger.error('PIX.NOTIFY.AUTO_REFUND_FAILED', {
-        flow: 'notification',
-        action: 'auto_refund_failed',
-        paymentId,
-        vtexPaymentId: storedPayment.vtexPaymentId,
-        orderId: storedPayment.orderId,
-        merchantOrderId: storedPayment.merchantOrderId,
-        amountCents: storedPayment.amount,
-        cancelledAt: storedPayment.cancelledAt,
-        error:
-          refundError instanceof Error
-            ? refundError.message
-            : String(refundError),
-        riskLevel: 'CRITICAL',
-        message:
-          'Auto-refund FAILED. Customer paid but order was cancelled. MANUAL REFUND REQUIRED IMMEDIATELY.',
-      })
+      this.logger.error(
+        '[NOTIFICATION] CRITICAL: Auto-refund FAILED - manual action required',
+        {
+          flow: 'notification',
+          action: 'auto_refund_failed',
+          paymentId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          merchantOrderId: storedPayment.merchantOrderId,
+          amountCents: storedPayment.amount,
+          cancelledAt: storedPayment.cancelledAt,
+          error:
+            refundError instanceof Error
+              ? refundError.message
+              : String(refundError),
+          riskLevel: 'CRITICAL',
+          message:
+            'Auto-refund FAILED. Customer paid but order was cancelled. MANUAL REFUND REQUIRED IMMEDIATELY.',
+        }
+      )
     }
   }
 
@@ -564,7 +582,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
   }): Promise<void> {
     const { paymentId, status, storedPayment, context } = params
 
-    this.logger.warn('PIX.NOTIFY.FRAUD_ANALYSIS', {
+    this.logger.warn('[NOTIFICATION] Fraud analysis change received', {
       flow: 'notification',
       action: 'fraud_analysis_change',
       paymentId,
@@ -594,7 +612,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     const { paymentId, status, storedPayment, context } = params
 
     this.logger.error(
-      'PIX.NOTIFY.CHARGEBACK',
+      '[NOTIFICATION] Chargeback received',
       new Error('Chargeback received'),
       {
         flow: 'notification',

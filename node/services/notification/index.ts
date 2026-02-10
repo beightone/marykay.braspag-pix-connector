@@ -49,7 +49,7 @@ export class NotificationService {
       const handler = this.handlers.find(h => h.canHandle(notification))
 
       if (!handler) {
-        this.logger.warn('PIX.NOTIFY.NO_HANDLER', {
+        this.logger.warn('[NOTIFICATION] No handler found for notification', {
           flow: 'notification',
           action: 'no_handler_found',
           notificationType: typeof notification,
@@ -63,7 +63,7 @@ export class NotificationService {
 
       return NotificationResponse.success()
     } catch (error) {
-      this.logger.error('PIX.NOTIFY.PROCESSING_FAILED', error, {
+      this.logger.error('[NOTIFICATION] Processing failed', error, {
         flow: 'notification',
         action: 'processing_failed',
         paymentId: (notification as any)?.PaymentId,

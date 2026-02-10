@@ -118,7 +118,7 @@ export default class BraspagConnector extends PaymentProvider<
         try {
           this.callback(authorization, response)
         } catch (error) {
-          this.logger.warn('PIX.AUTH.TEST_CALLBACK_FAILED', {
+          this.logger.warn('[PIX_AUTH] Test callback ping failed', {
             error: error instanceof Error ? error.message : String(error),
           })
         }
@@ -129,7 +129,7 @@ export default class BraspagConnector extends PaymentProvider<
       })
     }
 
-    this.logger.info('PIX.AUTH.STARTED', {
+    this.logger.info('[PIX_AUTH] Authorization request received', {
       flow: 'authorization',
       action: 'authorization_started',
       paymentId: authorization.paymentId,
@@ -146,7 +146,7 @@ export default class BraspagConnector extends PaymentProvider<
 
       return result
     } catch (error) {
-      this.logger.error('PIX.AUTH.FAILED', {
+      this.logger.error('[PIX_AUTH] Authorization failed', {
         flow: 'authorization',
         action: 'authorization_failed',
         paymentId: authorization.paymentId,
@@ -177,7 +177,7 @@ export default class BraspagConnector extends PaymentProvider<
     try {
       return await this.pixOpsService.cancelPayment(cancellation)
     } catch (error) {
-      this.logger.error('PIX.CANCEL.UNHANDLED', {
+      this.logger.error('[PIX_CANCEL] Unhandled cancellation error', {
         flow: 'cancellation',
         action: 'unhandled_error',
         paymentId: cancellation.paymentId,
@@ -207,7 +207,7 @@ export default class BraspagConnector extends PaymentProvider<
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.logger.warn('PIX.REFUND.NOT_FOUND', {
+        this.logger.warn('[PIX_REFUND] Payment not found in storage', {
           flow: 'refund',
           action: 'payment_not_found',
           paymentId: refund.paymentId,
@@ -218,7 +218,7 @@ export default class BraspagConnector extends PaymentProvider<
         return Refunds.deny(refund)
       }
 
-      this.logger.info('PIX.REFUND.STARTED', {
+      this.logger.info('[PIX_REFUND] Refund started', {
         flow: 'refund',
         action: 'refund_started',
         paymentId: refund.paymentId,
@@ -248,7 +248,7 @@ export default class BraspagConnector extends PaymentProvider<
 
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
 
-      this.logger.info('PIX.REFUND.APPROVED', {
+      this.logger.info('[PIX_REFUND] Refund approved', {
         flow: 'refund',
         action: 'refund_approved',
         paymentId: refund.paymentId,
@@ -264,7 +264,7 @@ export default class BraspagConnector extends PaymentProvider<
         message: 'PIX total refund requested successfully',
       })
     } catch (error) {
-      this.logger.error('PIX.REFUND.FAILED', {
+      this.logger.error('[PIX_REFUND] Refund failed', {
         flow: 'refund',
         action: 'refund_failed',
         paymentId: refund.paymentId,
@@ -288,7 +288,7 @@ export default class BraspagConnector extends PaymentProvider<
   }
 
   public inbound = async (request: any): Promise<any> => {
-    this.logger.info('PIX.WEBHOOK.RECEIVED', {
+    this.logger.info('[WEBHOOK] Braspag notification received', {
       flow: 'webhook',
       action: 'inbound_received',
       paymentId: request.body?.PaymentId,

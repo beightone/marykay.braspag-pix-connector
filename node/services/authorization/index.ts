@@ -36,18 +36,21 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     )
 
     if (existingPayment) {
-      this.deps.logger.info('PIX.AUTH.RETRY_DETECTED', {
-        flow: 'authorization',
-        action: 'retry_detected',
-        paymentId: authorization.paymentId,
-        orderId: authorization.orderId,
-        pixPaymentId: existingPayment.pixPaymentId,
-        currentStatus: existingPayment.status,
-        createdAt: existingPayment.createdAt,
-        elapsedMs: existingPayment.createdAt
-          ? Date.now() - new Date(existingPayment.createdAt).getTime()
-          : undefined,
-      })
+      this.deps.logger.info(
+        '[PIX_AUTH] Retry detected - returning stored payment',
+        {
+          flow: 'authorization',
+          action: 'retry_detected',
+          paymentId: authorization.paymentId,
+          orderId: authorization.orderId,
+          pixPaymentId: existingPayment.pixPaymentId,
+          currentStatus: existingPayment.status,
+          createdAt: existingPayment.createdAt,
+          elapsedMs: existingPayment.createdAt
+            ? Date.now() - new Date(existingPayment.createdAt).getTime()
+            : undefined,
+        }
+      )
 
       switch (existingPayment.status) {
         case BRASPAG_STATUS.PAID:
@@ -132,7 +135,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           this.deps.logger
         )
 
-        this.deps.logger.info('PIX.AUTH.ORDER_DATA_EXTRACTED', {
+        this.deps.logger.info('[PIX_AUTH] Order data extracted', {
           flow: 'authorization',
           action: 'order_data_extracted',
           paymentId: authorization.paymentId,
@@ -143,10 +146,12 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           itemsSubtotal: orderData?.itemsSubtotal,
           shippingValue: orderData?.shippingValue,
           couponDiscount: orderData?.couponDiscount,
-          isFreeShipping: (orderData?.shippingValue ?? 0) === 0 && (orderData?.couponDiscount ?? 0) > 0,
+          isFreeShipping:
+            (orderData?.shippingValue ?? 0) === 0 &&
+            (orderData?.couponDiscount ?? 0) > 0,
         })
       } catch (error) {
-        this.deps.logger.warn('PIX.AUTH.ORDER_DATA_FAILED', {
+        this.deps.logger.warn('[PIX_AUTH] Order data extraction failed', {
           flow: 'authorization',
           action: 'order_data_extraction_failed',
           paymentId: authorization.paymentId,
@@ -182,7 +187,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.logger
     )
 
-    this.deps.logger.info('PIX.AUTH.BRASPAG_REQUEST', {
+    this.deps.logger.info('[PIX_AUTH] Sending request to Braspag', {
       flow: 'authorization',
       action: 'braspag_request_sent',
       paymentId: authorization.paymentId,
@@ -204,13 +209,16 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
     if (!pixResponse.Payment) {
-      this.deps.logger.error('PIX.AUTH.NO_PAYMENT_RESPONSE', {
-        flow: 'authorization',
-        action: 'braspag_empty_response',
-        paymentId: authorization.paymentId,
-        orderId: authorization.orderId,
-        durationMs: Date.now() - startTime,
-      })
+      this.deps.logger.error(
+        '[PIX_AUTH] Braspag returned empty payment response',
+        {
+          flow: 'authorization',
+          action: 'braspag_empty_response',
+          paymentId: authorization.paymentId,
+          orderId: authorization.orderId,
+          durationMs: Date.now() - startTime,
+        }
+      )
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
 
@@ -219,7 +227,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     if (payment.Status === BRASPAG_STATUS.ABORTED) {
       const paymentAny = payment as any
 
-      this.deps.logger.error('PIX.AUTH.ABORTED', {
+      this.deps.logger.error('[PIX_AUTH] Payment aborted by Braspag', {
         flow: 'authorization',
         action: 'payment_aborted',
         paymentId: authorization.paymentId,
@@ -274,7 +282,7 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       paymentData
     )
 
-    this.deps.logger.info('PIX.AUTH.COMPLETED', {
+    this.deps.logger.info('[PIX_AUTH] Authorization completed successfully', {
       flow: 'authorization',
       action: 'authorization_completed',
       paymentId: authorization.paymentId,

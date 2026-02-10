@@ -49,7 +49,7 @@ export class OMSClient extends OMS {
         }
       )
 
-      this.logger.info('OMS.CANCEL_ORDER.SUCCESS', {
+      this.logger.info('[OMS] Order cancellation successful', {
         flow: 'oms',
         action: 'order_cancelled',
         orderId,
@@ -57,7 +57,7 @@ export class OMSClient extends OMS {
         durationMs: Date.now() - startTime,
       })
     } catch (error) {
-      this.logger.error('OMS.CANCEL_ORDER.FAILED', error, {
+      this.logger.error('[OMS] Order cancellation failed', error, {
         flow: 'oms',
         action: 'cancel_order_failed',
         orderId,
@@ -137,7 +137,7 @@ export class OMSClient extends OMS {
 
         braspagId = this.hublyClient.getBraspagIdFromConsultant(consultantData)
 
-        this.logger.info('HUBLY.CONSULTANT_RESOLVED', {
+        this.logger.info('[HUBLY] Consultant resolved', {
           flow: 'authorization',
           action: 'consultant_resolved',
           consultantId,
@@ -145,7 +145,7 @@ export class OMSClient extends OMS {
           hasAdditionalInfo: !!(consultantData.additionalInfo?.length),
         })
       } catch (error) {
-        this.logger.warn('HUBLY.CONSULTANT_FETCH_FAILED', {
+        this.logger.warn('[HUBLY] Consultant fetch failed', {
           flow: 'authorization',
           action: 'consultant_fetch_failed',
           consultantId,

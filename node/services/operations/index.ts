@@ -34,7 +34,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.deps.logger.warn('PIX.CANCEL.NOT_FOUND', {
+        this.deps.logger.warn('[PIX_CANCEL] Payment not found in storage', {
           flow: 'cancellation',
           action: 'payment_not_found',
           paymentId: cancellation.paymentId,
@@ -45,7 +45,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      this.deps.logger.info('PIX.CANCEL.STARTED', {
+      this.deps.logger.info('[PIX_CANCEL] Cancellation started', {
         flow: 'cancellation',
         action: 'cancellation_started',
         paymentId: cancellation.paymentId,
@@ -67,7 +67,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         >(storedPayment.pixPaymentId)
       } catch (error) {
         if (error?.message?.includes('not found')) {
-          this.deps.logger.warn('PIX.CANCEL.BRASPAG_NOT_FOUND', {
+          this.deps.logger.warn('[PIX_CANCEL] Payment not found in Braspag', {
             flow: 'cancellation',
             action: 'payment_not_found_in_braspag',
             paymentId: cancellation.paymentId,
@@ -92,7 +92,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
       // Already refunded - just approve
       if (currentStatus === BRASPAG_STATUS.REFUNDED) {
-        this.deps.logger.info('PIX.CANCEL.ALREADY_REFUNDED', {
+        this.deps.logger.info('[PIX_CANCEL] Already refunded', {
           flow: 'cancellation',
           action: 'already_refunded',
           paymentId: cancellation.paymentId,
@@ -110,7 +110,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
       // Already voided - just approve
       if (currentStatus === BRASPAG_STATUS.VOIDED) {
-        this.deps.logger.info('PIX.CANCEL.ALREADY_VOIDED', {
+        this.deps.logger.info('[PIX_CANCEL] Already voided', {
           flow: 'cancellation',
           action: 'already_voided',
           paymentId: cancellation.paymentId,
@@ -145,22 +145,25 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
         voidSuccess = true
 
-        this.deps.logger.info('PIX.CANCEL.VOIDED_AT_BRASPAG', {
-          flow: 'cancellation',
-          action: 'braspag_void_success',
-          paymentId: cancellation.paymentId,
-          pixPaymentId: storedPayment.pixPaymentId,
-          orderId: storedPayment.orderId,
-          previousBraspagStatus: currentStatus,
-          voidStatus: voidResult?.Status,
-          wasAlreadyPaid: currentStatus === BRASPAG_STATUS.PAID,
-          isRefund: currentStatus === BRASPAG_STATUS.PAID,
-          durationMs: Date.now() - startTime,
-        })
+        this.deps.logger.info(
+          '[PIX_CANCEL] PIX voided at Braspag - QR code invalidated',
+          {
+            flow: 'cancellation',
+            action: 'braspag_void_success',
+            paymentId: cancellation.paymentId,
+            pixPaymentId: storedPayment.pixPaymentId,
+            orderId: storedPayment.orderId,
+            previousBraspagStatus: currentStatus,
+            voidStatus: voidResult?.Status,
+            wasAlreadyPaid: currentStatus === BRASPAG_STATUS.PAID,
+            isRefund: currentStatus === BRASPAG_STATUS.PAID,
+            durationMs: Date.now() - startTime,
+          }
+        )
       } catch (voidError) {
         // Log but don't fail cancellation - VTEX already decided to cancel.
         // The notification handler serves as safety net for paid-after-cancel.
-        this.deps.logger.error('PIX.CANCEL.VOID_BRASPAG_FAILED', {
+        this.deps.logger.error('[PIX_CANCEL] Failed to void PIX at Braspag', {
           flow: 'cancellation',
           action: 'braspag_void_failed',
           paymentId: cancellation.paymentId,
@@ -205,7 +208,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         ? 'PIX payment cancelled and QR code invalidated at Braspag'
         : 'PIX payment cancelled locally - QR code invalidation at Braspag failed'
 
-      this.deps.logger.info('PIX.CANCEL.APPROVED', {
+      this.deps.logger.info('[PIX_CANCEL] Cancellation approved', {
         flow: 'cancellation',
         action: 'cancellation_approved',
         paymentId: cancellation.paymentId,
@@ -227,7 +230,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: responseMessage,
       })
     } catch (error) {
-      this.deps.logger.error('PIX.CANCEL.FAILED', {
+      this.deps.logger.error('[PIX_CANCEL] Cancellation failed', {
         flow: 'cancellation',
         action: 'cancellation_failed',
         paymentId: cancellation.paymentId,
@@ -258,7 +261,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.deps.logger.warn('PIX.SETTLE.NOT_FOUND', {
+        this.deps.logger.warn('[PIX_SETTLE] Payment not found in storage', {
           flow: 'settlement',
           action: 'payment_not_found',
           paymentId,
@@ -274,7 +277,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       )
 
       if (statusInfo.canSettle) {
-        this.deps.logger.info('PIX.SETTLE.APPROVED', {
+        this.deps.logger.info('[PIX_SETTLE] Settlement approved', {
           flow: 'settlement',
           action: 'settlement_approved',
           paymentId,
@@ -296,7 +299,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      this.deps.logger.warn('PIX.SETTLE.DENIED', {
+      this.deps.logger.warn('[PIX_SETTLE] Settlement denied - invalid status', {
         flow: 'settlement',
         action: 'settlement_denied',
         paymentId,
@@ -315,7 +318,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {
-      this.deps.logger.error('PIX.SETTLE.FAILED', {
+      this.deps.logger.error('[PIX_SETTLE] Settlement failed', {
         flow: 'settlement',
         action: 'settlement_failed',
         paymentId: settlement.paymentId,
