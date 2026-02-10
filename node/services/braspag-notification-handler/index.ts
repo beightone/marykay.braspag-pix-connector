@@ -332,7 +332,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
       })
     }
 
-    // Process for PAID status - with PIX timing analysis
+    // Process for PAID status - with PIX timing analysis and cancel protection
     if (effectiveStatus === BRASPAG_STATUS.PAID) {
       const elapsedMs = storedPayment.createdAt
         ? Date.now() - new Date(storedPayment.createdAt).getTime()
@@ -349,6 +349,40 @@ export class BraspagNotificationHandler implements NotificationHandler {
       const isExpired = elapsedMs
         ? elapsedMs > PIX_TIMING.EXPIRED_THRESHOLD
         : false
+
+      const wasAlreadyCancelled = !!storedPayment.cancelledAt
+
+      // ===================================================================
+      // SAFETY NET: Auto-refund if customer paid AFTER order was cancelled.
+      // This happens when:
+      // 1. VTEX cancels the order (timeout, error, etc.)
+      // 2. Our cancel handler voids the QR code at Braspag
+      // 3. BUT the void didn't work or customer already scanned the QR
+      // 4. Braspag sends PAID notification
+      // Per Cielo docs: "devolução PIX" via PUT /v2/sales/{paymentId}/void
+      // Prazo: 90 days from original payment.
+      // ===================================================================
+      if (wasAlreadyCancelled) {
+        this.logger.error('PIX.NOTIFY.PAID_AFTER_CANCEL', {
+          flow: 'notification',
+          action: 'paid_after_order_cancelled',
+          paymentId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          merchantOrderId: storedPayment.merchantOrderId,
+          amountCents: updatedPayment.amount,
+          cancelledAt: storedPayment.cancelledAt,
+          paidAt: new Date().toISOString(),
+          elapsedMinutes,
+          riskLevel: 'CRITICAL',
+          message:
+            'Customer paid AFTER order was cancelled in VTEX. Triggering automatic refund (devolução PIX) at Braspag.',
+        })
+
+        await this.triggerAutoRefund(paymentId, storedPayment, context)
+
+        return
+      }
 
       if (isExpired) {
         this.logger.error('PIX.NOTIFY.PAID_AFTER_EXPIRATION', {
@@ -434,6 +468,90 @@ export class BraspagNotificationHandler implements NotificationHandler {
         paymentId: PaymentId,
         orderId: storedPayment.orderId,
         error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  /**
+   * Auto-refund (devolução PIX) when customer paid after order was cancelled.
+   * Per Cielo/Braspag docs: PUT /v2/sales/{paymentId}/void triggers a "devolução PIX".
+   * The refund is not instantaneous - Braspag will send a notification when processed.
+   * Prazo: 90 days from original payment per Banco Central regulations.
+   */
+  private async triggerAutoRefund(
+    paymentId: string,
+    storedPayment: StoredBraspagPayment,
+    context: NotificationContext
+  ): Promise<void> {
+    if (!context.clients.braspag?.voidPixPayment) {
+      this.logger.error('PIX.NOTIFY.AUTO_REFUND_NO_CLIENT', {
+        flow: 'notification',
+        action: 'auto_refund_no_void_client',
+        paymentId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        orderId: storedPayment.orderId,
+        riskLevel: 'CRITICAL',
+        message:
+          'Cannot auto-refund: Braspag void client not available in notification context. MANUAL REFUND REQUIRED.',
+      })
+
+      return
+    }
+
+    try {
+      await context.clients.braspag.voidPixPayment(paymentId)
+
+      // Update stored payment status to REFUNDED
+      const refundedPayment: StoredBraspagPayment = {
+        ...storedPayment,
+        status: BRASPAG_STATUS.REFUNDED,
+        lastUpdated: new Date().toISOString(),
+      }
+
+      await context.clients.vbase.saveJSON(
+        VBASE_BUCKETS.BRASPAG_PAYMENTS,
+        paymentId,
+        refundedPayment
+      )
+
+      if (storedPayment.vtexPaymentId) {
+        await context.clients.vbase.saveJSON(
+          VBASE_BUCKETS.BRASPAG_PAYMENTS,
+          storedPayment.vtexPaymentId,
+          refundedPayment
+        )
+      }
+
+      this.logger.info('PIX.NOTIFY.AUTO_REFUND_SUCCESS', {
+        flow: 'notification',
+        action: 'auto_refund_triggered',
+        paymentId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        orderId: storedPayment.orderId,
+        merchantOrderId: storedPayment.merchantOrderId,
+        amountCents: storedPayment.amount,
+        cancelledAt: storedPayment.cancelledAt,
+        refundedAt: new Date().toISOString(),
+        message:
+          'Auto-refund (devolução PIX) triggered successfully. Customer will receive the money back.',
+      })
+    } catch (refundError) {
+      this.logger.error('PIX.NOTIFY.AUTO_REFUND_FAILED', {
+        flow: 'notification',
+        action: 'auto_refund_failed',
+        paymentId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        orderId: storedPayment.orderId,
+        merchantOrderId: storedPayment.merchantOrderId,
+        amountCents: storedPayment.amount,
+        cancelledAt: storedPayment.cancelledAt,
+        error:
+          refundError instanceof Error
+            ? refundError.message
+            : String(refundError),
+        riskLevel: 'CRITICAL',
+        message:
+          'Auto-refund FAILED. Customer paid but order was cancelled. MANUAL REFUND REQUIRED IMMEDIATELY.',
       })
     }
   }

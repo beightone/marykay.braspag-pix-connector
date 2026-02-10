@@ -308,8 +308,27 @@ export default class BraspagConnector extends PaymentProvider<
     const notificationContext = {
       status: 200,
       body: request.body,
+      vtex: { account: this.context.vtex.account },
       clients: {
         vbase: vbaseClient,
+        braspag: {
+          queryPixStatus: (paymentId: string) =>
+            this.context.clients.braspagQuery.getTransactionByPaymentId(
+              paymentId
+            ),
+          voidPixPayment: async (paymentId: string) => {
+            const braspagClient = braspagClientFactory.createClient(
+              this.context.vtex
+            )
+
+            return braspagClient.voidPixPayment(paymentId)
+          },
+        },
+        retry: {
+          ping: async (url: string) => {
+            return this.context.clients.vtexGateway.pingRetryCallback(url)
+          },
+        },
       },
       request: { body: request.body },
     }

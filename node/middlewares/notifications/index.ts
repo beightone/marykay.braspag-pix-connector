@@ -4,6 +4,7 @@ import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { BraspagNotification } from '../../types/braspag-notifications'
 import { NotificationService } from '../../services'
 import { NotificationContext } from '../../services/notification/types'
+import { braspagClientFactory } from '../../services/braspag-client-factory'
 
 export async function notifications(ctx: Context) {
   const datadogLogger = new Logger(ctx, ctx.clients.datadog)
@@ -56,6 +57,11 @@ export async function notifications(ctx: Context) {
       braspag: {
         queryPixStatus: (paymentId: string) =>
           ctx.clients.braspagQuery.getTransactionByPaymentId(paymentId),
+        voidPixPayment: async (paymentId: string) => {
+          const braspagClient = braspagClientFactory.createClient(ctx.vtex)
+
+          return braspagClient.voidPixPayment(paymentId)
+        },
       },
     },
     request: { body },

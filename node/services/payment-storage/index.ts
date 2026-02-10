@@ -74,6 +74,8 @@ export class VBasePaymentStorageService implements PaymentStorage {
       ...existingData,
       status,
       lastUpdated: new Date().toISOString(),
+      // Track cancellation timestamp for paid-after-cancel detection
+      ...(status === 10 && { cancelledAt: new Date().toISOString() }),
     }
 
     await this.savePaymentData(paymentId, updatedData)
