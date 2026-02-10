@@ -22,39 +22,38 @@ export class BraspagPixOperationsService implements PixOperationsService {
   public async cancelPayment(
     cancellation: CancellationRequest
   ): Promise<CancellationResponse> {
+    const startTime = Date.now()
+
     try {
       const storedPayment = await this.deps.storageService.getStoredPayment(
         cancellation.paymentId
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.deps.logger.warn(
-          '[PIX_CANCEL] Payment not found or invalid type',
-          {
-            flow: 'cancellation',
-            action: 'payment_validation_failed',
-            paymentId: cancellation.paymentId,
-            paymentFound: !!storedPayment,
-            paymentType: storedPayment?.type,
-          }
-        )
+        this.deps.logger.warn('PIX.CANCEL.NOT_FOUND', {
+          flow: 'cancellation',
+          action: 'payment_not_found',
+          paymentId: cancellation.paymentId,
+          paymentFound: !!storedPayment,
+          paymentType: storedPayment?.type,
+        })
 
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      this.deps.logger.info('[PIX_CANCEL] Starting cancellation process', {
+      this.deps.logger.info('PIX.CANCEL.STARTED', {
         flow: 'cancellation',
         action: 'cancellation_started',
         paymentId: cancellation.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
-        amount: storedPayment.amount,
+        orderId: storedPayment.orderId,
+        storedStatus: storedPayment.status,
+        amountCents: storedPayment.amount,
+        createdAt: storedPayment.createdAt,
+        elapsedMs: storedPayment.createdAt
+          ? Date.now() - new Date(storedPayment.createdAt).getTime()
+          : undefined,
       })
-
-      const merchantSettings = this.getMerchantSettings(cancellation)
-      const braspagClient = this.deps.clientFactory.createClient(
-        this.deps.context,
-        merchantSettings
-      )
 
       let paymentStatus: QueryPixStatusResponse | null = null
 
@@ -64,15 +63,12 @@ export class BraspagPixOperationsService implements PixOperationsService {
         >(storedPayment.pixPaymentId)
       } catch (error) {
         if (error?.message?.includes('not found')) {
-          this.deps.logger.warn(
-            '[PIX_CANCEL] Payment not found in Braspag, attempting void anyway',
-            {
-              flow: 'cancellation',
-              action: 'payment_not_found_in_braspag',
-              paymentId: cancellation.paymentId,
-              pixPaymentId: storedPayment.pixPaymentId,
-            }
-          )
+          this.deps.logger.warn('PIX.CANCEL.BRASPAG_NOT_FOUND', {
+            flow: 'cancellation',
+            action: 'payment_not_found_in_braspag',
+            paymentId: cancellation.paymentId,
+            pixPaymentId: storedPayment.pixPaymentId,
+          })
         } else {
           throw error
         }
@@ -90,13 +86,32 @@ export class BraspagPixOperationsService implements PixOperationsService {
           },
         } as any)
 
+      // Protection: prevent cancellation if payment is already paid
+      if (currentStatus === 2) {
+        this.deps.logger.warn('PIX.CANCEL.DENIED_ALREADY_PAID', {
+          flow: 'cancellation',
+          action: 'cancel_denied_already_paid',
+          paymentId: cancellation.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          orderId: storedPayment.orderId,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
+        })
+
+        return Cancellations.deny(cancellation, {
+          code: 'ALREADY_PAID',
+          message: 'PIX payment cannot be cancelled - already paid by customer',
+        })
+      }
+
       if (currentStatus === 11) {
-        this.deps.logger.info('[PIX_CANCEL] Payment already refunded', {
+        this.deps.logger.info('PIX.CANCEL.ALREADY_REFUNDED', {
           flow: 'cancellation',
           action: 'already_refunded',
           paymentId: cancellation.paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
-          status: currentStatus,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
         })
 
         return Cancellations.approve(cancellation, {
@@ -106,42 +121,23 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      if (currentStatus === 2) {
-        try {
-          const voidResponse = await braspagClient.voidPixPayment(
-            payment.PaymentId as string
-          )
-
-          await this.deps.storageService.updatePaymentStatus(
-            cancellation.paymentId,
-            11
-          )
-
-          return Cancellations.approve(cancellation, {
-            cancellationId: payment.PaymentId as string,
-            code: (voidResponse.Status ?? 11).toString(),
-            message: 'PIX total void requested successfully',
-          })
-        } catch (error) {
-          throw error
-        }
-      }
-
       await this.deps.storageService.updatePaymentStatus(
         cancellation.paymentId,
         10
       )
 
-      this.deps.logger.info(
-        '[PIX_CANCEL] Payment cancelled before confirmation',
-        {
-          flow: 'cancellation',
-          action: 'cancelled_before_payment',
-          paymentId: cancellation.paymentId,
-          pixPaymentId: payment.PaymentId,
-          status: currentStatus,
-        }
-      )
+      this.deps.logger.info('PIX.CANCEL.APPROVED', {
+        flow: 'cancellation',
+        action: 'cancellation_approved',
+        paymentId: cancellation.paymentId,
+        pixPaymentId: payment.PaymentId,
+        orderId: storedPayment.orderId,
+        previousStatus: storedPayment.status,
+        braspagStatus: currentStatus,
+        newStatus: 10,
+        reason: 'cancelled_before_payment',
+        durationMs: Date.now() - startTime,
+      })
 
       return Cancellations.approve(cancellation, {
         cancellationId: payment.PaymentId as string,
@@ -149,11 +145,13 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: 'PIX payment cancelled before confirmation',
       })
     } catch (error) {
-      this.deps.logger.error('[PIX_CANCEL] Cancellation failed', {
+      this.deps.logger.error('PIX.CANCEL.FAILED', {
         flow: 'cancellation',
-        action: 'cancellation_error',
+        action: 'cancellation_failed',
         paymentId: cancellation.paymentId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        durationMs: Date.now() - startTime,
       })
 
       return Cancellations.deny(cancellation, {
@@ -168,6 +166,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
   public async settlePayment(
     settlement: SettlementRequest
   ): Promise<SettlementResponse> {
+    const startTime = Date.now()
+
     try {
       const { paymentId } = settlement
 
@@ -176,44 +176,35 @@ export class BraspagPixOperationsService implements PixOperationsService {
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.deps.logger.warn(
-          '[PIX_SETTLE] Payment not found or invalid type',
-          {
-            flow: 'settlement',
-            action: 'payment_validation_failed',
-            paymentId,
-            paymentFound: !!storedPayment,
-            paymentType: storedPayment?.type,
-          }
-        )
+        this.deps.logger.warn('PIX.SETTLE.NOT_FOUND', {
+          flow: 'settlement',
+          action: 'payment_not_found',
+          paymentId,
+          paymentFound: !!storedPayment,
+          paymentType: storedPayment?.type,
+        })
 
         throw new Error('PIX payment not found or invalid payment type')
       }
-
-      this.deps.logger.info('[PIX_SETTLE] Starting settlement process', {
-        flow: 'settlement',
-        action: 'settlement_validation',
-        paymentId,
-        pixPaymentId: storedPayment.pixPaymentId,
-        amount: storedPayment.amount,
-        status: storedPayment.status,
-      })
 
       const statusInfo = PaymentStatusHandler.getStatusInfo(
         storedPayment.status ?? 0
       )
 
       if (statusInfo.canSettle) {
-        this.deps.logger.info('[PIX_SETTLE] Settlement approved', {
+        this.deps.logger.info('PIX.SETTLE.APPROVED', {
           flow: 'settlement',
           action: 'settlement_approved',
           paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
-          status: storedPayment.status,
+          orderId: storedPayment.orderId,
+          braspagStatus: storedPayment.status,
           statusDescription: statusInfo.statusDescription,
-          consultantSplitAmount: storedPayment.consultantSplitAmount,
-          masterSplitAmount: storedPayment.masterSplitAmount,
-          hasSplitPayments: !!storedPayment.splitPayments,
+          amountCents: storedPayment.amount,
+          settlementValueBRL: settlement.value,
+          hasSplit: !!storedPayment.splitPayments?.length,
+          splitCount: storedPayment.splitPayments?.length ?? 0,
+          durationMs: Date.now() - startTime,
         })
 
         return Settlements.approve(settlement, {
@@ -223,12 +214,18 @@ export class BraspagPixOperationsService implements PixOperationsService {
         })
       }
 
-      this.deps.logger.warn('[PIX_SETTLE] Payment cannot be settled', {
+      this.deps.logger.warn('PIX.SETTLE.DENIED', {
         flow: 'settlement',
         action: 'settlement_denied',
         paymentId,
-        status: storedPayment.status,
+        pixPaymentId: storedPayment.pixPaymentId,
+        orderId: storedPayment.orderId,
+        braspagStatus: storedPayment.status,
         statusDescription: statusInfo.statusDescription,
+        canSettle: statusInfo.canSettle,
+        isPending: statusInfo.isPending,
+        isAlreadyCancelled: statusInfo.isAlreadyCancelled,
+        durationMs: Date.now() - startTime,
       })
 
       return Settlements.deny(settlement, {
@@ -236,11 +233,13 @@ export class BraspagPixOperationsService implements PixOperationsService {
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {
-      this.deps.logger.error('[PIX_SETTLE] Settlement failed', {
+      this.deps.logger.error('PIX.SETTLE.FAILED', {
         flow: 'settlement',
-        action: 'settlement_error',
+        action: 'settlement_failed',
         paymentId: settlement.paymentId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        durationMs: Date.now() - startTime,
       })
 
       return Settlements.deny(settlement, {
@@ -252,20 +251,6 @@ export class BraspagPixOperationsService implements PixOperationsService {
     }
   }
 
-  private getMerchantSettings(
-    request: CancellationRequest | SettlementRequest
-  ) {
-    const extended = (request as unknown) as {
-      merchantSettings?: Array<{ name: string; value: string }>
-    }
-
-    const authData = {
-      merchantSettings: extended.merchantSettings,
-      paymentId: request.paymentId,
-    }
-
-    return this.deps.configService.getMerchantSettings(authData)
-  }
 }
 
 export class PixOperationsServiceFactory {

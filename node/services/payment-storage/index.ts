@@ -43,9 +43,11 @@ export class VBasePaymentStorageService implements PaymentStorage {
     paymentId: string,
     data: StoredBraspagPayment
   ): Promise<void> {
+    const now = new Date().toISOString()
     const paymentData: StoredBraspagPayment = {
       ...data,
-      lastUpdated: new Date().toISOString(),
+      createdAt: data.createdAt ?? now, // Set createdAt only on first save
+      lastUpdated: now,
     }
 
     await this.vbase.saveJSON(

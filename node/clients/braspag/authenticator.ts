@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-/* eslint-disable no-console */
 import { BraspagConfig } from './config'
 import { DatadogCompatibleLogger } from '../../tools/datadog/logger.types'
 import { AuthenticateResponse } from './types'
@@ -39,12 +38,7 @@ export class BraspagAuthenticator {
   private async authenticate(): Promise<string> {
     const { authUrl } = this.config.environment
     const { merchantId, clientSecret } = this.config.credentials
-
-    this.logger.info('BRASPAG: Starting authentication', {
-      authUrl,
-      merchantId,
-      environment: this.config.isProduction ? 'production' : 'sandbox',
-    })
+    const startTime = Date.now()
 
     const basicAuth = Buffer.from(`${merchantId}:${clientSecret}`).toString(
       'base64'
@@ -67,17 +61,22 @@ export class BraspagAuthenticator {
       this.accessToken = authData.access_token
       this.tokenExpiry = new Date(Date.now() + authData.expires_in * 1000)
 
-      this.logger.info('BRASPAG: Authentication successful', {
-        tokenType: authData.token_type,
-        expiresIn: authData.expires_in,
+      this.logger.info('BRASPAG.AUTH.SUCCESS', {
+        flow: 'braspag_auth',
+        action: 'authentication_success',
+        environment: this.config.isProduction ? 'production' : 'sandbox',
+        expiresInSeconds: authData.expires_in,
+        durationMs: Date.now() - startTime,
       })
 
       return this.accessToken
     } catch (error) {
-      this.logger.error('BRASPAG: Authentication failed', {
-        authUrl,
-        merchantId,
+      this.logger.error('BRASPAG.AUTH.FAILED', {
+        flow: 'braspag_auth',
+        action: 'authentication_failed',
+        environment: this.config.isProduction ? 'production' : 'sandbox',
         error: error instanceof Error ? error.message : 'Unknown error',
+        durationMs: Date.now() - startTime,
       })
 
       this.clearToken()
@@ -120,8 +119,6 @@ export class BraspagAuthenticator {
 
     const requestId = requestIdMatch?.[1] ?? 'N/A'
     const environment = this.config.isProduction ? 'production' : 'sandbox'
-
-    console.dir({ error }, { depth: null, colors: true })
 
     return new Error(
       `Braspag authentication failed: Invalid client credentials. ` +

@@ -15,7 +15,11 @@ export async function notifications(ctx: Context) {
   const body = ctx.state.body as BraspagNotification
 
   if (!body || typeof body !== 'object') {
-    logger.warn('Invalid notification payload received', {})
+    logger.warn('PIX.WEBHOOK.INVALID_PAYLOAD', {
+      flow: 'webhook',
+      action: 'invalid_payload',
+      contentType: ctx.request?.headers?.['content-type'],
+    })
     ctx.status = 400
     ctx.body = { error: 'Invalid notification payload' }
 
@@ -39,7 +43,9 @@ export async function notifications(ctx: Context) {
           try {
             await ctx.clients.vtexGateway.pingRetryCallback(url)
           } catch (error) {
-            logger.warn('VTEX_RETRY_PING_FAILED', {
+            logger.warn('PIX.WEBHOOK.RETRY_PING_FAILED', {
+              flow: 'webhook',
+              action: 'retry_ping_failed',
               url,
               error: error instanceof Error ? error.message : String(error),
             })
@@ -61,19 +67,18 @@ export async function notifications(ctx: Context) {
   )
 
   if (result.status === 200) {
-    logger.info('Notification processed successfully', {
-      paymentId: body.PaymentId,
-      changeType: body.ChangeType,
-    })
     ctx.status = 200
     ctx.body = { message: 'Notification processed successfully' }
 
     return
   }
 
-  logger.error('Failed to process notification', new Error(result.message), {
+  logger.error('PIX.WEBHOOK.FAILED', new Error(result.message), {
+    flow: 'webhook',
+    action: 'processing_failed',
     paymentId: body.PaymentId,
-    data: result.data,
+    changeType: body.ChangeType,
+    resultStatus: result.status,
   })
   ctx.status = result.status
   ctx.body = { error: result.message, data: result.data }

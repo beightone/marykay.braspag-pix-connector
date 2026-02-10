@@ -195,23 +195,14 @@ export class BraspagPixRequestBuilder {
   ): SplitPaymentEntry[] {
     const subordinateMerchantId = config.braspagId ?? config.monitfyConsultantId
 
-    if (logger) {
-      logger.info('[BRASPAG_ADAPTER] Creating split payments', {
-        flow: 'authorization',
-        action: 'create_split_payments',
-        braspagId: config.braspagId,
-        monitfyConsultantId: config.monitfyConsultantId,
-        subordinateMerchantId,
-        splitProfitPct: config.splitProfitPct,
-      })
-    }
-
     if (!subordinateMerchantId) {
       if (logger) {
-        logger.warn('[BRASPAG_ADAPTER] Skipping split - missing data', {
+        logger.warn('PIX.SPLIT.SKIPPED_NO_MERCHANT', {
           flow: 'authorization',
-          action: 'skip_split_missing_data',
-          hasSubordinateMerchantId: !!subordinateMerchantId,
+          action: 'split_skipped_no_merchant_id',
+          hasBraspagId: !!config.braspagId,
+          hasConsultantId: !!config.monitfyConsultantId,
+          totalAmountCents: totalAmount,
         })
       }
 
@@ -222,29 +213,15 @@ export class BraspagPixRequestBuilder {
     const shippingAmount = Math.min(shippingValue, totalAmount)
     const consultantAmount = totalAmount - shippingAmount
 
-    if (logger) {
-      logger.info('[BRASPAG_ADAPTER] Split amounts calculated', {
-        flow: 'authorization',
-        action: 'split_amounts_calculated',
-        totalAmount,
-        shippingValue,
-        shippingAmount,
-        consultantAmount,
-        totalSplit: consultantAmount + shippingAmount,
-        difference: totalAmount - (consultantAmount + shippingAmount),
-      })
-    }
-
     if (consultantAmount <= 0) {
       if (logger) {
-        logger.info('[BRASPAG_ADAPTER] Skipping split - no consultant amount', {
+        logger.warn('PIX.SPLIT.SKIPPED_ZERO_CONSULTANT', {
           flow: 'authorization',
-          action: 'skip_split_no_consultant_amount',
-          totalAmount,
-          shippingValue,
-          shippingAmount,
-          consultantAmount,
-      })
+          action: 'split_skipped_zero_consultant_amount',
+          totalAmountCents: totalAmount,
+          shippingAmountCents: shippingAmount,
+          consultantAmountCents: consultantAmount,
+        })
       }
 
       return []
@@ -268,15 +245,16 @@ export class BraspagPixRequestBuilder {
     }
 
     if (logger) {
-      logger.info('[BRASPAG_ADAPTER] Split payments created', {
+      logger.info('PIX.SPLIT.CALCULATED', {
         flow: 'authorization',
-        action: 'split_payments_created',
-        splits: splits.map(split => ({
-          subordinateMerchantId: split.SubordinateMerchantId,
-          amount: split.Amount,
-          mdr: split.Fares?.Mdr,
-          fee: split.Fares?.Fee,
-        })),
+        action: 'split_calculated',
+        totalAmountCents: totalAmount,
+        consultantAmountCents: consultantAmount,
+        shippingAmountCents: shippingAmount,
+        subordinateMerchantId,
+        splitCount: splits.length,
+        mdr: config.mdr ?? 0,
+        fee: config.fee ?? 0,
       })
     }
 

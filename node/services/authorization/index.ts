@@ -29,18 +29,24 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
   public async authorizePixPayment(
     authorization: AuthorizationRequest
   ): Promise<AuthorizationResponse> {
+    const startTime = Date.now()
+
     const existingPayment = await this.deps.storageService.getStoredPayment(
       authorization.paymentId
     )
 
     if (existingPayment) {
-      this.deps.logger.info('[PIX_AUTH] Existing payment found', {
+      this.deps.logger.info('PIX.AUTH.RETRY_DETECTED', {
         flow: 'authorization',
-        action: 'existing_payment',
+        action: 'retry_detected',
         paymentId: authorization.paymentId,
-        pixPaymentId: existingPayment.pixPaymentId,
-        status: existingPayment.status,
         orderId: authorization.orderId,
+        pixPaymentId: existingPayment.pixPaymentId,
+        currentStatus: existingPayment.status,
+        createdAt: existingPayment.createdAt,
+        elapsedMs: existingPayment.createdAt
+          ? Date.now() - new Date(existingPayment.createdAt).getTime()
+          : undefined,
       })
 
       switch (existingPayment.status) {
@@ -120,43 +126,30 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       }
 
       try {
-        this.deps.logger.info('[PIX_AUTH] Extracting order data', {
-          flow: 'authorization',
-          action: 'extract_order_data_start',
-          orderId: extended.orderId,
-          orderSequence,
-        })
-
         orderData = await this.deps.ordersClient.extractOrderData(
           orderSequence,
           hublyConfig,
           this.deps.logger
         )
 
-        const isFreeShipping =
-          (orderData?.shippingValue ?? 0) === 0 &&
-          (orderData?.couponDiscount ?? 0) > 0
-
-        console.log('orderData gotardo', orderData)
-        this.deps.logger.info('[PIX_AUTH] Order data extracted', {
+        this.deps.logger.info('PIX.AUTH.ORDER_DATA_EXTRACTED', {
           flow: 'authorization',
           action: 'order_data_extracted',
+          paymentId: authorization.paymentId,
           orderId: extended.orderId,
           consultantId: orderData?.consultantId,
           braspagId: orderData?.braspagId,
           splitProfitPct: orderData?.splitProfitPct,
-          splitDiscountPct: orderData?.splitDiscountPct,
           itemsSubtotal: orderData?.itemsSubtotal,
-          discountsSubtotal: orderData?.discountsSubtotal,
           shippingValue: orderData?.shippingValue,
           couponDiscount: orderData?.couponDiscount,
-          totalTaxes: orderData?.totalTaxes,
-          isFreeShipping,
+          isFreeShipping: (orderData?.shippingValue ?? 0) === 0 && (orderData?.couponDiscount ?? 0) > 0,
         })
       } catch (error) {
-        this.deps.logger.warn('[PIX_AUTH] Order data extraction failed', {
+        this.deps.logger.warn('PIX.AUTH.ORDER_DATA_FAILED', {
           flow: 'authorization',
-          action: 'order_data_extraction',
+          action: 'order_data_extraction_failed',
+          paymentId: authorization.paymentId,
           orderId: extended.orderId,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -167,30 +160,6 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const isFreeShippingCoupon =
       (orderData?.shippingValue ?? 0) === 0 &&
       (orderData?.couponDiscount ?? 0) > 0
-
-    this.deps.logger.info(
-      '[PIX_AUTH] Building PIX request with split calculation',
-      {
-        flow: 'authorization',
-        action: 'build_pix_request',
-        paymentId: authorization.paymentId,
-        orderId: authorization.orderId,
-        value: authorization.value,
-        merchantId: merchantSettings.merchantId,
-        orderData: {
-          consultantId: orderData?.consultantId,
-          braspagId: orderData?.braspagId,
-          splitProfitPct: orderData?.splitProfitPct,
-          splitDiscountPct: orderData?.splitDiscountPct,
-          itemsSubtotal: orderData?.itemsSubtotal,
-          discountsSubtotal: orderData?.discountsSubtotal,
-          shippingValue: orderData?.shippingValue,
-          couponDiscount: orderData?.couponDiscount,
-          totalTaxes: orderData?.totalTaxes,
-          isFreeShippingCoupon,
-        },
-      }
-    )
 
     const pixRequest = createBraspagPixSaleRequest(
       authorization,
@@ -213,54 +182,34 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       this.deps.logger
     )
 
-    this.deps.logger.info('[PIX_AUTH] PIX request built', {
+    this.deps.logger.info('PIX.AUTH.BRASPAG_REQUEST', {
       flow: 'authorization',
-      action: 'pix_request_built',
+      action: 'braspag_request_sent',
       paymentId: authorization.paymentId,
-      transactionId: authorization.transactionId,
       orderId: authorization.orderId,
-      value: authorization.value,
+      transactionId: authorization.transactionId,
+      valueBRL: authorization.value,
+      amountCents: pixRequest.Payment?.Amount,
       merchantOrderId: pixRequest.MerchantOrderId,
-      paymentAmount: pixRequest.Payment?.Amount,
       hasSplit: !!pixRequest.Payment?.SplitPayments?.length,
       splitCount: pixRequest.Payment?.SplitPayments?.length ?? 0,
       splits: pixRequest.Payment?.SplitPayments?.map(split => ({
-        subordinateMerchantId: split.SubordinateMerchantId,
+        merchantId: split.SubordinateMerchantId,
         amount: split.Amount,
         mdr: split.Fares?.Mdr,
         fee: split.Fares?.Fee,
       })),
-      consultantId: orderData?.consultantId,
-      braspagId: orderData?.braspagId,
-    })
-
-    this.deps.logger.info('[PIX_AUTH] Sending request to Braspag', {
-      flow: 'authorization',
-      action: 'send_braspag_request',
-      paymentId: authorization.paymentId,
-      merchantOrderId: pixRequest.MerchantOrderId,
-      requestPayload: JSON.stringify(pixRequest),
     })
 
     const pixResponse = await braspagClient.createPixSale(pixRequest)
 
-    this.deps.logger.info('[PIX_AUTH] Braspag response received', {
-      flow: 'authorization',
-      action: 'braspag_response_received',
-      paymentId: authorization.paymentId,
-      orderId: authorization.orderId,
-      braspagPaymentId: pixResponse.Payment?.PaymentId,
-      status: pixResponse.Payment?.Status,
-      hasQrCode: !!pixResponse.Payment?.QrCodeString,
-      responsePayload: JSON.stringify(pixResponse),
-    })
-
     if (!pixResponse.Payment) {
-      this.deps.logger.error('[PIX_AUTH] Payment creation failed', {
+      this.deps.logger.error('PIX.AUTH.NO_PAYMENT_RESPONSE', {
         flow: 'authorization',
-        action: 'create_pix_failed',
+        action: 'braspag_empty_response',
         paymentId: authorization.paymentId,
         orderId: authorization.orderId,
+        durationMs: Date.now() - startTime,
       })
       throw new Error(RESPONSE_MESSAGES.PIX_CREATION_FAILED)
     }
@@ -268,31 +217,25 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     const { Payment: payment } = pixResponse
 
     if (payment.Status === BRASPAG_STATUS.ABORTED) {
-      /* eslint-disable no-console, @typescript-eslint/no-explicit-any */
       const paymentAny = payment as any
 
-      console.log('========== PAYMENT ABORTED - START ==========')
-      console.log('Full payment object:')
-      console.log(JSON.stringify(payment, null, 2))
-      console.log('\nError details:')
-      console.log('ReturnCode:', paymentAny.ReturnCode)
-      console.log('ReturnMessage:', paymentAny.ReturnMessage)
-      console.log('ProviderReturnCode:', paymentAny.ProviderReturnCode)
-      console.log('ProviderReturnMessage:', paymentAny.ProviderReturnMessage)
-      console.log('ReasonCode:', paymentAny.ReasonCode)
-      console.log('ReasonMessage:', paymentAny.ReasonMessage)
-      console.log('\nFull response:')
-      console.log(JSON.stringify(pixResponse, null, 2))
-      console.log('========== PAYMENT ABORTED - END ==========')
-      /* eslint-enable no-console, @typescript-eslint/no-explicit-any */
-
-      this.deps.logger.error('[PIX_AUTH] Payment aborted', {
+      this.deps.logger.error('PIX.AUTH.ABORTED', {
         flow: 'authorization',
         action: 'payment_aborted',
         paymentId: authorization.paymentId,
         pixPaymentId: payment.PaymentId,
         orderId: authorization.orderId,
-        status: payment.Status,
+        valueBRL: authorization.value,
+        amountCents: pixRequest.Payment?.Amount,
+        returnCode: paymentAny.ReturnCode,
+        returnMessage: paymentAny.ReturnMessage,
+        providerReturnCode: paymentAny.ProviderReturnCode,
+        providerReturnMessage: paymentAny.ProviderReturnMessage,
+        reasonCode: paymentAny.ReasonCode,
+        reasonMessage: paymentAny.ReasonMessage,
+        consultantId: orderData?.consultantId,
+        braspagId: orderData?.braspagId,
+        durationMs: Date.now() - startTime,
       })
 
       return Authorizations.deny(authorization, {
@@ -331,17 +274,22 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       paymentData
     )
 
-    this.deps.logger.info('[PIX_AUTH] Payment created successfully', {
+    this.deps.logger.info('PIX.AUTH.COMPLETED', {
       flow: 'authorization',
-      action: 'payment_created',
+      action: 'authorization_completed',
       paymentId: authorization.paymentId,
       pixPaymentId: payment.PaymentId,
-      transactionId: payment.Tid,
+      tid: payment.Tid,
       orderId: authorization.orderId,
-      value: authorization.value,
-      status: payment.Status,
+      merchantOrderId: pixRequest.MerchantOrderId,
+      valueBRL: authorization.value,
+      amountCents: pixRequest.Payment?.Amount,
+      braspagStatus: payment.Status,
+      hasQrCode: !!payment.QrCodeString,
       hasSplit: splitSummary.length > 0,
       splitCount: splitSummary.length,
+      pixExpirationMs: PAYMENT_DELAYS.PIX_CANCEL_TIMEOUT,
+      durationMs: Date.now() - startTime,
     })
 
     const paymentAppData = createPixPaymentAppData({

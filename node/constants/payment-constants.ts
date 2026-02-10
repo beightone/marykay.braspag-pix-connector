@@ -11,9 +11,16 @@ export const TIMEOUT_CONFIG = {
 
 // Payment delays
 export const PAYMENT_DELAYS = {
-  PIX_CANCEL_TIMEOUT: 15 * 60 * 1000, // 15 minutes
-  AUTO_SETTLE_DELAY: 10 * 60 * 1000, // 10 minutes - Time window before VTEX auto-cancels pending payment
+  PIX_CANCEL_TIMEOUT: 2 * 60 * 60 * 1000, // 2 hours - Matches Braspag PIX QR code expiration
+  AUTO_SETTLE_DELAY: 2 * 60 * 60 * 1000, // 2 hours - Same as PIX QR code lifetime
   AUTO_SETTLE_AFTER_ANTIFRAUD: 2 * 60 * 1000, // 2 minutes
+  PIX_EXPIRATION_SECONDS: 7200, // 2 hours in seconds - Braspag PIX QR code lifetime
+} as const
+
+// PIX timing thresholds (in milliseconds)
+export const PIX_TIMING = {
+  LATE_PAYMENT_THRESHOLD: 90 * 60 * 1000, // 90 minutes - warn if payment is close to expiring
+  EXPIRED_THRESHOLD: 2 * 60 * 60 * 1000, // 2 hours - PIX QR code expired
 } as const
 
 // Braspag payment status codes
