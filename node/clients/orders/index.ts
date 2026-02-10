@@ -39,15 +39,6 @@ export class OMSClient extends OMS {
     const cancelReason = reason ?? 'Reembolso do pedido'
     const startTime = Date.now()
 
-    this.logger.info('[OMS_CLIENT] Cancelling order in VTEX', {
-      flow: 'order_cancellation',
-      action: 'cancel_order',
-      orderId,
-      reason: cancelReason,
-      endpoint: `/api/oms/pvt/orders/${orderId}/cancel`,
-      timestamp: new Date().toISOString(),
-    })
-
     try {
       await this.http.post(
         `/api/oms/pvt/orders/${orderId}/cancel`,
@@ -58,28 +49,21 @@ export class OMSClient extends OMS {
         }
       )
 
-      const duration = Date.now() - startTime
-
-      this.logger.info('[OMS_CLIENT] Order cancelled successfully', {
-        flow: 'order_cancellation',
+      this.logger.info('[OMS] Order cancellation successful', {
+        flow: 'oms',
         action: 'order_cancelled',
         orderId,
         reason: cancelReason,
-        duration,
+        durationMs: Date.now() - startTime,
       })
     } catch (error) {
-      const duration = Date.now() - startTime
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      const errorStack = error instanceof Error ? error.stack : undefined
-
-      this.logger.error('[OMS_CLIENT] Failed to cancel order', error, {
-        flow: 'order_cancellation',
+      this.logger.error('[OMS] Order cancellation failed', error, {
+        flow: 'oms',
         action: 'cancel_order_failed',
-        error: errorMsg,
-        stack: errorStack,
         orderId,
         reason: cancelReason,
-        duration,
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startTime,
       })
 
       throw error
@@ -92,15 +76,6 @@ export class OMSClient extends OMS {
     logger?: DatadogCompatibleLogger
   ): Promise<ExtractedOrderData> {
     const order = await this.getOrder(orderId)
-
-    logger?.info('ORDER_EXTRACT: Order data extracted', {
-      orderId,
-      flow: 'order_extraction',
-      action: 'order_data_extracted',
-      order,
-    })
-
-    console.dir(order, { depth: null, colors: true })
 
     const customApps = order.customData?.customApps ?? []
 
@@ -122,13 +97,6 @@ export class OMSClient extends OMS {
     const discountsSubtotal = totals.find((t) => t.id === 'Discounts')?.value ?? 0
     const shippingValue = totals.find((t) => t.id === 'Shipping')?.value ?? 0
 
-    logger?.info('ORDER_EXTRACT: Totals extracted', {
-      itemsSubtotal,
-      discountsSubtotal,
-      shippingValue,
-      totalValue: order.value,
-    })
-
     let couponDiscount = 0
     const couponCode = (order as any)?.marketingData?.coupon as string | undefined
     const rateIds = (order as any)?.ratesAndBenefitsData?.rateAndBenefitsIdentifiers as
@@ -138,14 +106,6 @@ export class OMSClient extends OMS {
     const couponPromotionId = rateIds?.find(
       (p) => p.matchedParameters?.['couponCode@Marketing'] === couponCode
     )?.id
-
-    logger?.info('ORDER_EXTRACT: Coupon analysis', {
-      couponCode,
-      couponPromotionId,
-      rateIdsCount: rateIds?.length ?? 0,
-      shippingValue,
-      discountsSubtotal,
-    })
 
     if (couponPromotionId) {
       const items = (order.items as any[]) || []
@@ -160,11 +120,6 @@ export class OMSClient extends OMS {
 
         return (acc as number) + Math.abs((tag.value ?? 0) as number)
       }, 0)
-
-      logger?.info('ORDER_EXTRACT: Coupon discount calculated', {
-        couponDiscount,
-        isFreeShipping: shippingValue === 0 && couponDiscount > 0,
-      })
     }
 
     let braspagId: string | undefined
@@ -174,58 +129,40 @@ export class OMSClient extends OMS {
         const apiKey = hublyConfig?.apiKey
         const organizationId = hublyConfig?.organizationId
 
-        this.logger.info('[HUBLY] Fetching consultant data', {
-          flow: 'authorization',
-          action: 'fetch_consultant_data',
-          consultantId,
-          organizationId,
-          hasApiKey: !!apiKey,
-          willUseDefaults: !apiKey,
-        })
-
         const consultantData = await this.hublyClient.getConsultantData(
           consultantId,
           apiKey,
           organizationId
         )
 
-        this.logger.info('[HUBLY] Consultant data received', {
-          flow: 'authorization',
-          action: 'consultant_data_received',
-          consultantId,
-          additionalInfoCount: consultantData.additionalInfo?.length ?? 0,
-        })
-
         braspagId = this.hublyClient.getBraspagIdFromConsultant(consultantData)
 
-        this.logger.info('[HUBLY] Braspag ID extracted', {
+        this.logger.info('[HUBLY] Consultant resolved', {
           flow: 'authorization',
-          action: 'braspag_id_extracted',
+          action: 'consultant_resolved',
           consultantId,
           braspagId,
+          hasAdditionalInfo: !!(consultantData.additionalInfo?.length),
         })
       } catch (error) {
-        this.logger.error('[HUBLY] Failed to fetch consultant data', error, {
+        this.logger.warn('[HUBLY] Consultant fetch failed', {
           flow: 'authorization',
-          action: 'fetch_consultant_data_failed',
+          action: 'consultant_fetch_failed',
           consultantId,
           error: error instanceof Error ? error.message : String(error),
         })
       }
-    } else {
-      this.logger.info('[HUBLY] Skipping fetch - missing consultantId', {
-        flow: 'authorization',
-        action: 'skip_consultant_fetch',
-      })
     }
 
     const isFreeShippingCoupon = shippingValue === 0 && couponDiscount > 0
 
     if (isFreeShippingCoupon) {
-      logger?.info('ORDER_EXTRACT: Free shipping coupon detected - resetting couponDiscount to 0', {
-        originalCouponDiscount: couponDiscount,
+      logger?.info('ORDER.FREE_SHIPPING_COUPON', {
+        flow: 'authorization',
+        action: 'free_shipping_coupon_detected',
+        orderId,
+        couponDiscount,
         shippingValue,
-        message: 'Split will use 75% Mary Kay / 25% Consultant (no adjustment)',
       })
     }
 
@@ -240,8 +177,6 @@ export class OMSClient extends OMS {
       couponDiscount: isFreeShippingCoupon ? 0 : couponDiscount,
       isFreeShippingCoupon,
     }
-
-    logger?.info('ORDER_EXTRACT: Final order data', extractedData)
 
     return extractedData
   }

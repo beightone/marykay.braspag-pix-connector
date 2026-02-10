@@ -36,6 +36,7 @@ export interface StoredBraspagPayment {
   orderId?: string
   status?: number
   type: string
+  createdAt?: string
   lastUpdated?: string
   amount?: number
   cancelledAt?: string

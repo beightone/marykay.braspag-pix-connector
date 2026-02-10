@@ -18,6 +18,7 @@ export interface NotificationContext {
     }
     braspag?: {
       queryPixStatus: (paymentId: string) => Promise<unknown>
+      voidPixPayment?: (paymentId: string) => Promise<unknown>
     }
     retry?: {
       ping: (url: string) => Promise<unknown>

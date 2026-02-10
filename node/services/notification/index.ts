@@ -46,31 +46,28 @@ export class NotificationService {
     context: NotificationContext
   ): Promise<NotificationResponse> {
     try {
-      this.logger.info('NOTIFICATION: Received notification', {
-        type: typeof notification,
-        hasBody: !!notification,
-      })
-
-      // Find appropriate handler
       const handler = this.handlers.find(h => h.canHandle(notification))
 
       if (!handler) {
-        this.logger.warn('NOTIFICATION: No handler found for notification', {
-          notification,
+        this.logger.warn('[NOTIFICATION] No handler found for notification', {
+          flow: 'notification',
+          action: 'no_handler_found',
+          notificationType: typeof notification,
+          hasPaymentId: !!(notification as any)?.PaymentId,
         })
 
         return NotificationResponse.badRequest('Unsupported notification type')
       }
 
-      // Process notification
       await handler.handle(notification, context)
-
-      this.logger.info('NOTIFICATION: Successfully processed', {})
 
       return NotificationResponse.success()
     } catch (error) {
-      this.logger.error('NOTIFICATION: Processing failed', error, {
-        notification,
+      this.logger.error('[NOTIFICATION] Processing failed', error, {
+        flow: 'notification',
+        action: 'processing_failed',
+        paymentId: (notification as any)?.PaymentId,
+        error: error instanceof Error ? error.message : String(error),
       })
 
       return NotificationResponse.error('Failed to process notification')

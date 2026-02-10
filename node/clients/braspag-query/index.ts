@@ -22,6 +22,7 @@ export class BraspagQueryClient extends ExternalClient {
     })
 
     const credentials = context.settings
+
     this.merchantId =
       credentials?.merchantId ?? 'D23429C6-4CDC-484E-9DFA-A8ECD5EA539C'
     this.merchantKey =

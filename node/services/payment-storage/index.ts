@@ -43,9 +43,11 @@ export class VBasePaymentStorageService implements PaymentStorage {
     paymentId: string,
     data: StoredBraspagPayment
   ): Promise<void> {
+    const now = new Date().toISOString()
     const paymentData: StoredBraspagPayment = {
       ...data,
-      lastUpdated: new Date().toISOString(),
+      createdAt: data.createdAt ?? now, // Set createdAt only on first save
+      lastUpdated: now,
     }
 
     await this.vbase.saveJSON(
@@ -72,6 +74,8 @@ export class VBasePaymentStorageService implements PaymentStorage {
       ...existingData,
       status,
       lastUpdated: new Date().toISOString(),
+      // Track cancellation timestamp for paid-after-cancel detection
+      ...(status === 10 && { cancelledAt: new Date().toISOString() }),
     }
 
     await this.savePaymentData(paymentId, updatedData)

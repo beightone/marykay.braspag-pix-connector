@@ -4,6 +4,7 @@ import { DatadogLoggerAdapter } from '../../tools/datadog/logger-adapter'
 import { BraspagNotification } from '../../types/braspag-notifications'
 import { NotificationService } from '../../services'
 import { NotificationContext } from '../../services/notification/types'
+import { braspagClientFactory } from '../../services/braspag-client-factory'
 
 export async function notifications(ctx: Context) {
   const datadogLogger = new Logger(ctx, ctx.clients.datadog)
@@ -15,7 +16,11 @@ export async function notifications(ctx: Context) {
   const body = ctx.state.body as BraspagNotification
 
   if (!body || typeof body !== 'object') {
-    logger.warn('Invalid notification payload received', {})
+    logger.warn('[WEBHOOK] Invalid notification payload', {
+      flow: 'webhook',
+      action: 'invalid_payload',
+      contentType: ctx.request?.headers?.['content-type'],
+    })
     ctx.status = 400
     ctx.body = { error: 'Invalid notification payload' }
 
@@ -39,7 +44,9 @@ export async function notifications(ctx: Context) {
           try {
             await ctx.clients.vtexGateway.pingRetryCallback(url)
           } catch (error) {
-            logger.warn('VTEX_RETRY_PING_FAILED', {
+            logger.warn('[WEBHOOK] Retry ping failed', {
+              flow: 'webhook',
+              action: 'retry_ping_failed',
               url,
               error: error instanceof Error ? error.message : String(error),
             })
@@ -50,6 +57,11 @@ export async function notifications(ctx: Context) {
       braspag: {
         queryPixStatus: (paymentId: string) =>
           ctx.clients.braspagQuery.getTransactionByPaymentId(paymentId),
+        voidPixPayment: async (paymentId: string) => {
+          const braspagClient = braspagClientFactory.createClient(ctx.vtex)
+
+          return braspagClient.voidPixPayment(paymentId)
+        },
       },
     },
     request: { body },
@@ -61,19 +73,18 @@ export async function notifications(ctx: Context) {
   )
 
   if (result.status === 200) {
-    logger.info('Notification processed successfully', {
-      paymentId: body.PaymentId,
-      changeType: body.ChangeType,
-    })
     ctx.status = 200
     ctx.body = { message: 'Notification processed successfully' }
 
     return
   }
 
-  logger.error('Failed to process notification', new Error(result.message), {
+  logger.error('[WEBHOOK] Notification processing failed', new Error(result.message), {
+    flow: 'webhook',
+    action: 'processing_failed',
     paymentId: body.PaymentId,
-    data: result.data,
+    changeType: body.ChangeType,
+    resultStatus: result.status,
   })
   ctx.status = result.status
   ctx.body = { error: result.message, data: result.data }

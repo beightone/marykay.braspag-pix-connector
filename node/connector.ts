@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import {
   AuthorizationRequest,
   AuthorizationResponse,
@@ -119,7 +118,7 @@ export default class BraspagConnector extends PaymentProvider<
         try {
           this.callback(authorization, response)
         } catch (error) {
-          this.logger.warn('[TEST] Callback failed', {
+          this.logger.warn('[PIX_AUTH] Test callback ping failed', {
             error: error instanceof Error ? error.message : String(error),
           })
         }
@@ -132,21 +131,29 @@ export default class BraspagConnector extends PaymentProvider<
 
     this.logger.info('[PIX_AUTH] Authorization request received', {
       flow: 'authorization',
-      action: 'authorization_request',
+      action: 'authorization_started',
       paymentId: authorization.paymentId,
       orderId: authorization.orderId,
-      value: authorization.value,
+      transactionId: authorization.transactionId,
+      valueBRL: authorization.value,
+      callbackUrl: authorization.callbackUrl,
     })
 
     try {
-      return await this.pixAuthService.authorizePixPayment(authorization)
+      const result = await this.pixAuthService.authorizePixPayment(
+        authorization
+      )
+
+      return result
     } catch (error) {
       this.logger.error('[PIX_AUTH] Authorization failed', {
         flow: 'authorization',
-        action: 'authorization_error',
+        action: 'authorization_failed',
         paymentId: authorization.paymentId,
         orderId: authorization.orderId,
+        valueBRL: authorization.value,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       })
 
       return Authorizations.deny(authorization, {
@@ -170,11 +177,12 @@ export default class BraspagConnector extends PaymentProvider<
     try {
       return await this.pixOpsService.cancelPayment(cancellation)
     } catch (error) {
-      this.logger.error('[PIX_CANCEL] Cancellation failed', {
+      this.logger.error('[PIX_CANCEL] Unhandled cancellation error', {
         flow: 'cancellation',
-        action: 'cancellation_error',
+        action: 'unhandled_error',
         paymentId: cancellation.paymentId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       })
 
       return Cancellations.deny(cancellation, {
@@ -191,15 +199,17 @@ export default class BraspagConnector extends PaymentProvider<
       return Refunds.deny(refund)
     }
 
+    const startTime = Date.now()
+
     try {
       const storedPayment = await this.storageService.getStoredPayment(
         refund.paymentId
       )
 
       if (!storedPayment || storedPayment.type !== 'pix') {
-        this.logger.warn('[PIX_REFUND] Payment not found or invalid type', {
+        this.logger.warn('[PIX_REFUND] Payment not found in storage', {
           flow: 'refund',
-          action: 'payment_validation_failed',
+          action: 'payment_not_found',
           paymentId: refund.paymentId,
           paymentFound: !!storedPayment,
           paymentType: storedPayment?.type,
@@ -208,12 +218,14 @@ export default class BraspagConnector extends PaymentProvider<
         return Refunds.deny(refund)
       }
 
-      this.logger.info('[PIX_REFUND] Starting refund process', {
+      this.logger.info('[PIX_REFUND] Refund started', {
         flow: 'refund',
         action: 'refund_started',
         paymentId: refund.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
-        amount: storedPayment.amount,
+        orderId: storedPayment.orderId,
+        amountCents: storedPayment.amount,
+        braspagStatus: storedPayment.status,
       })
 
       const extended = (refund as unknown) as {
@@ -241,8 +253,9 @@ export default class BraspagConnector extends PaymentProvider<
         action: 'refund_approved',
         paymentId: refund.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
-        refundId: storedPayment.pixPaymentId,
-        status: voidResponse.Status,
+        orderId: storedPayment.orderId,
+        braspagVoidStatus: voidResponse.Status,
+        durationMs: Date.now() - startTime,
       })
 
       return Refunds.approve(refund, {
@@ -253,9 +266,11 @@ export default class BraspagConnector extends PaymentProvider<
     } catch (error) {
       this.logger.error('[PIX_REFUND] Refund failed', {
         flow: 'refund',
-        action: 'refund_error',
+        action: 'refund_failed',
         paymentId: refund.paymentId,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        durationMs: Date.now() - startTime,
       })
 
       return Refunds.deny(refund)
@@ -269,22 +284,17 @@ export default class BraspagConnector extends PaymentProvider<
       return Settlements.deny(settlement)
     }
 
-    this.logger.info('[PIX_SETTLE] Starting settlement process', {
-      flow: 'settlement',
-      action: 'settlement_started',
-      paymentId: settlement.paymentId,
-      value: settlement.value,
-    })
-
     return this.pixOpsService.settlePayment(settlement)
   }
 
   public inbound = async (request: any): Promise<any> => {
-    this.logger.info('[WEBHOOK] Notification received', {
+    this.logger.info('[WEBHOOK] Braspag notification received', {
       flow: 'webhook',
-      action: 'notification_received',
+      action: 'inbound_received',
       paymentId: request.body?.PaymentId,
       changeType: request.body?.ChangeType,
+      status: request.body?.Status,
+      merchantOrderId: request.body?.MerchantOrderId,
     })
 
     const vbaseClient = {
@@ -298,8 +308,27 @@ export default class BraspagConnector extends PaymentProvider<
     const notificationContext = {
       status: 200,
       body: request.body,
+      vtex: { account: this.context.vtex.account },
       clients: {
         vbase: vbaseClient,
+        braspag: {
+          queryPixStatus: (paymentId: string) =>
+            this.context.clients.braspagQuery.getTransactionByPaymentId(
+              paymentId
+            ),
+          voidPixPayment: async (paymentId: string) => {
+            const braspagClient = braspagClientFactory.createClient(
+              this.context.vtex
+            )
+
+            return braspagClient.voidPixPayment(paymentId)
+          },
+        },
+        retry: {
+          ping: async (url: string) => {
+            return this.context.clients.vtexGateway.pingRetryCallback(url)
+          },
+        },
       },
       request: { body: request.body },
     }
