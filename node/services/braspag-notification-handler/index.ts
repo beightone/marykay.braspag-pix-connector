@@ -48,6 +48,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         action: 'payment_not_found',
         paymentId: PaymentId,
         changeType: ChangeType,
+        merchantOrderId: MerchantOrderId,
       })
 
       throw new Error(`Payment ${PaymentId} not found in storage`)
@@ -130,7 +131,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
     storedPayment: StoredBraspagPayment,
     context: NotificationContext
   ): Promise<void> {
-    const { PaymentId, ChangeType, Status, Amount } = notification
+    const { PaymentId, ChangeType, Status, Amount, MerchantOrderId } = notification
 
     switch (ChangeType) {
       case BraspagChangeType.PaymentStatusChange:
@@ -167,6 +168,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'unknown_change_type',
           paymentId: PaymentId,
+          merchantOrderId: MerchantOrderId,
           changeType: ChangeType,
         })
         break
@@ -189,6 +191,8 @@ export class BraspagNotificationHandler implements NotificationHandler {
       context,
       notification,
     } = params
+
+    const merchantOrderId = notification.MerchantOrderId ?? storedPayment.merchantOrderId
 
     // Determine effective status and amount (fallback to Braspag query if missing)
     let effectiveStatus = status
@@ -215,6 +219,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'braspag_query_fallback',
           paymentId,
+          merchantOrderId,
           queriedStatus: tx.Payment?.Status,
           queriedAmount: tx.Payment?.Amount,
           notificationStatus: status,
@@ -225,6 +230,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'braspag_query_failed',
           paymentId,
+          merchantOrderId,
           error: error instanceof Error ? error.message : String(error),
         })
       }
@@ -245,6 +251,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'duplicate_notification',
           paymentId,
+          merchantOrderId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          buyerDocument: storedPayment.buyerDocument,
           currentStatus: storedPayment.status,
           currentStatusName: this.getStatusName(storedPayment.status),
         }
@@ -259,6 +269,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
       paymentId,
       vtexPaymentId: storedPayment.vtexPaymentId,
       orderId: storedPayment.orderId,
+      merchantOrderId: storedPayment.merchantOrderId,
+      buyerDocument: storedPayment.buyerDocument,
+      buyerEmail: storedPayment.buyerEmail,
+      buyerName: storedPayment.buyerName,
       previousStatus: storedPayment.status,
       previousStatusName: this.getStatusName(storedPayment.status),
       newStatus: effectiveStatus,
@@ -310,7 +324,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'callback_ping_sent',
           paymentId,
+          merchantOrderId,
           vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          buyerDocument: storedPayment.buyerDocument,
           newStatus: effectiveStatus,
           newStatusName: this.getStatusName(effectiveStatus),
         })
@@ -319,7 +336,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'callback_ping_failed',
           paymentId,
+          merchantOrderId,
           vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          buyerDocument: storedPayment.buyerDocument,
           callbackUrl: storedPayment.callbackUrl,
           error: error instanceof Error ? error.message : String(error),
         })
@@ -331,7 +351,10 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'final_status_reached',
           paymentId,
+          merchantOrderId,
           vtexPaymentId: storedPayment.vtexPaymentId,
+          orderId: storedPayment.orderId,
+          buyerDocument: storedPayment.buyerDocument,
           finalStatus: effectiveStatus,
           finalStatusName: this.getStatusName(effectiveStatus),
         }
@@ -378,6 +401,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
             vtexPaymentId: storedPayment.vtexPaymentId,
             orderId: storedPayment.orderId,
             merchantOrderId: storedPayment.merchantOrderId,
+            buyerDocument: storedPayment.buyerDocument,
+            buyerEmail: storedPayment.buyerEmail,
+            buyerName: storedPayment.buyerName,
             amountCents: updatedPayment.amount,
             cancelledAt: storedPayment.cancelledAt,
             paidAt: new Date().toISOString(),
@@ -403,6 +429,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
             vtexPaymentId: storedPayment.vtexPaymentId,
             orderId: storedPayment.orderId,
             merchantOrderId: storedPayment.merchantOrderId,
+            buyerDocument: storedPayment.buyerDocument,
+            buyerEmail: storedPayment.buyerEmail,
+            buyerName: storedPayment.buyerName,
             amountCents: updatedPayment.amount,
             elapsedMinutes,
             elapsedMs,
@@ -421,6 +450,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
           vtexPaymentId: storedPayment.vtexPaymentId,
           orderId: storedPayment.orderId,
           merchantOrderId: storedPayment.merchantOrderId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
+          buyerName: storedPayment.buyerName,
           amountCents: updatedPayment.amount,
           elapsedMinutes,
           elapsedMs,
@@ -438,6 +470,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
           vtexPaymentId: storedPayment.vtexPaymentId,
           orderId: storedPayment.orderId,
           merchantOrderId: storedPayment.merchantOrderId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
+          buyerName: storedPayment.buyerName,
           amountCents: updatedPayment.amount,
           elapsedMinutes,
           elapsedMs,
@@ -478,6 +513,7 @@ export class BraspagNotificationHandler implements NotificationHandler {
         flow: 'notification',
         action: 'paid_processing_failed',
         paymentId: PaymentId,
+        merchantOrderId: storedPayment.merchantOrderId,
         orderId: storedPayment.orderId,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -502,8 +538,11 @@ export class BraspagNotificationHandler implements NotificationHandler {
           flow: 'notification',
           action: 'auto_refund_no_void_client',
           paymentId,
+          merchantOrderId: storedPayment.merchantOrderId,
           vtexPaymentId: storedPayment.vtexPaymentId,
           orderId: storedPayment.orderId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
           riskLevel: 'CRITICAL',
           message:
             'Cannot auto-refund: Braspag void client not available in notification context. MANUAL REFUND REQUIRED.',
@@ -544,6 +583,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
         vtexPaymentId: storedPayment.vtexPaymentId,
         orderId: storedPayment.orderId,
         merchantOrderId: storedPayment.merchantOrderId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
+        buyerName: storedPayment.buyerName,
         amountCents: storedPayment.amount,
         cancelledAt: storedPayment.cancelledAt,
         refundedAt: new Date().toISOString(),
@@ -560,6 +602,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
           vtexPaymentId: storedPayment.vtexPaymentId,
           orderId: storedPayment.orderId,
           merchantOrderId: storedPayment.merchantOrderId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
+          buyerName: storedPayment.buyerName,
           amountCents: storedPayment.amount,
           cancelledAt: storedPayment.cancelledAt,
           error:
@@ -586,8 +631,11 @@ export class BraspagNotificationHandler implements NotificationHandler {
       flow: 'notification',
       action: 'fraud_analysis_change',
       paymentId,
+      merchantOrderId: storedPayment.merchantOrderId,
       vtexPaymentId: storedPayment.vtexPaymentId,
       orderId: storedPayment.orderId,
+      buyerDocument: storedPayment.buyerDocument,
+      buyerEmail: storedPayment.buyerEmail,
       fraudStatus: status,
     })
 
@@ -621,6 +669,9 @@ export class BraspagNotificationHandler implements NotificationHandler {
         vtexPaymentId: storedPayment.vtexPaymentId,
         orderId: storedPayment.orderId,
         merchantOrderId: storedPayment.merchantOrderId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
+        buyerName: storedPayment.buyerName,
         chargebackStatus: status,
         amountCents: storedPayment.amount,
       }

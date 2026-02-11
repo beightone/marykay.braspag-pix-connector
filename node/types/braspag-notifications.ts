@@ -42,6 +42,9 @@ export interface StoredBraspagPayment {
   cancelledAt?: string
   vtexPaymentId?: string
   callbackUrl?: string
+  buyerDocument?: string
+  buyerEmail?: string
+  buyerName?: string
   splitPayments?: Array<{
     subordinateMerchantId: string
     amount: number
