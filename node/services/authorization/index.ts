@@ -59,19 +59,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         }
       )
 
-      // ===================================================================
-      // FIX: When status is still pending, query Braspag for the actual
-      // current status before responding. This prevents infinite retry loops
-      // when the customer already paid but the notification was missed.
-      // ===================================================================
       let resolvedStatus = existingPayment.status
 
-      const isPendingStatus =
-        resolvedStatus === BRASPAG_STATUS.NOT_FINISHED ||
-        resolvedStatus === BRASPAG_STATUS.PENDING ||
-        resolvedStatus === BRASPAG_STATUS.PENDING_AUTHORIZATION
-
-      if (isPendingStatus && this.deps.queryClient) {
+      if (this.deps.queryClient) {
         try {
           const braspagResponse = await this.deps.queryClient.getTransactionByPaymentId<
             QueryPixStatusResponse
@@ -115,10 +105,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
             )
           } else {
             this.deps.logger.info(
-              '[PIX_AUTH] Braspag status confirmed - still pending',
+              '[PIX_AUTH] Braspag status confirmed - matches stored',
               {
                 flow: 'authorization',
-                action: 'retry_status_confirmed_pending',
+                action: 'retry_status_confirmed',
                 paymentId: authorization.paymentId,
                 orderId: authorization.orderId,
                 pixPaymentId: existingPayment.pixPaymentId,

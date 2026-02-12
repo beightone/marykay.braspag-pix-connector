@@ -307,9 +307,60 @@ export class BraspagPixOperationsService implements PixOperationsService {
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const statusInfo = PaymentStatusHandler.getStatusInfo(
-        storedPayment.status ?? 0
-      )
+      let currentStatus = storedPayment.status ?? 0
+
+      if (this.deps.queryClient) {
+        try {
+          const paymentStatus =
+            await this.deps.queryClient.getTransactionByPaymentId<
+              QueryPixStatusResponse
+            >(storedPayment.pixPaymentId)
+
+          const braspagStatus = paymentStatus?.Payment?.Status
+
+          if (braspagStatus !== undefined) {
+            currentStatus = braspagStatus
+
+            if (braspagStatus !== storedPayment.status) {
+              await this.deps.storageService.updatePaymentStatus(
+                paymentId,
+                braspagStatus
+              )
+              await this.deps.storageService.updatePaymentStatus(
+                storedPayment.pixPaymentId,
+                braspagStatus
+              )
+              this.deps.logger.info(
+                '[PIX_SETTLE] Braspag status differs from stored - updated',
+                {
+                  flow: 'settlement',
+                  action: 'braspag_status_reconciled',
+                  paymentId,
+                  pixPaymentId: storedPayment.pixPaymentId,
+                  storedStatus: storedPayment.status,
+                  braspagStatus,
+                }
+              )
+            }
+          }
+        } catch (queryError) {
+          this.deps.logger.warn(
+            '[PIX_SETTLE] Braspag query failed - using stored status',
+            {
+              flow: 'settlement',
+              action: 'braspag_query_failed',
+              paymentId,
+              pixPaymentId: storedPayment.pixPaymentId,
+              error:
+                queryError instanceof Error
+                  ? queryError.message
+                  : String(queryError),
+            }
+          )
+        }
+      }
+
+      const statusInfo = PaymentStatusHandler.getStatusInfo(currentStatus)
 
       if (statusInfo.canSettle) {
         this.deps.logger.info('[PIX_SETTLE] Settlement approved', {
@@ -322,7 +373,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
           buyerDocument: storedPayment.buyerDocument,
           buyerEmail: storedPayment.buyerEmail,
           buyerName: storedPayment.buyerName,
-          braspagStatus: storedPayment.status,
+          braspagStatus: currentStatus,
           statusDescription: statusInfo.statusDescription,
           amountCents: storedPayment.amount,
           settlementValueBRL: settlement.value,
@@ -333,7 +384,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
         return Settlements.approve(settlement, {
           settleId: storedPayment.pixPaymentId,
-          code: storedPayment.status?.toString() ?? '2',
+          code: currentStatus.toString(),
           message: 'PIX payment settled successfully',
         })
       }
@@ -347,7 +398,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
         vtexPaymentId: storedPayment.vtexPaymentId,
         buyerDocument: storedPayment.buyerDocument,
         buyerEmail: storedPayment.buyerEmail,
-        braspagStatus: storedPayment.status,
+        braspagStatus: currentStatus,
         statusDescription: statusInfo.statusDescription,
         canSettle: statusInfo.canSettle,
         isPending: statusInfo.isPending,
@@ -356,7 +407,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       })
 
       return Settlements.deny(settlement, {
-        code: storedPayment.status?.toString() ?? 'INVALID_STATUS',
+        code: currentStatus.toString(),
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {

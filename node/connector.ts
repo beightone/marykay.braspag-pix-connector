@@ -21,7 +21,11 @@ import { executeAuthorization } from './flow'
 import { Clients } from './clients'
 import { Logger } from './tools/datadog/datadog'
 import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
-import { ERROR_CODES } from './constants/payment-constants'
+import {
+  ERROR_CODES,
+  BRASPAG_STATUS,
+} from './constants/payment-constants'
+import { QueryPixStatusResponse } from './clients/braspag/types'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
@@ -234,6 +238,86 @@ export default class BraspagConnector extends PaymentProvider<
         return Refunds.deny(refund)
       }
 
+      let currentStatus = storedPayment.status ?? 0
+
+      if (this.context.clients.braspagQuery) {
+        try {
+          const paymentStatus =
+            await this.context.clients.braspagQuery.getTransactionByPaymentId<
+              QueryPixStatusResponse
+            >(storedPayment.pixPaymentId)
+
+          const braspagStatus = paymentStatus?.Payment?.Status
+
+          if (braspagStatus !== undefined) {
+            currentStatus = braspagStatus
+
+            if (braspagStatus !== storedPayment.status) {
+              await this.storageService.updatePaymentStatus(
+                refund.paymentId,
+                braspagStatus
+              )
+              await this.storageService.updatePaymentStatus(
+                storedPayment.pixPaymentId,
+                braspagStatus
+              )
+            }
+          }
+        } catch (queryError) {
+          this.logger.warn('[PIX_REFUND] Braspag query failed - using stored', {
+            flow: 'refund',
+            action: 'braspag_query_failed',
+            paymentId: refund.paymentId,
+            pixPaymentId: storedPayment.pixPaymentId,
+            error:
+              queryError instanceof Error
+                ? queryError.message
+                : String(queryError),
+          })
+        }
+      }
+
+      if (
+        currentStatus === BRASPAG_STATUS.REFUNDED ||
+        currentStatus === BRASPAG_STATUS.VOIDED
+      ) {
+        this.logger.info('[PIX_REFUND] Already processed at Braspag', {
+          flow: 'refund',
+          action: 'already_processed',
+          paymentId: refund.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          orderId: storedPayment.orderId,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
+        })
+
+        return Refunds.approve(refund, {
+          refundId: storedPayment.pixPaymentId,
+          code: currentStatus.toString(),
+          message:
+            currentStatus === BRASPAG_STATUS.REFUNDED
+              ? 'PIX payment already refunded'
+              : 'PIX payment already voided',
+        })
+      }
+
+      if (
+        currentStatus === BRASPAG_STATUS.NOT_FINISHED ||
+        currentStatus === BRASPAG_STATUS.PENDING ||
+        currentStatus === BRASPAG_STATUS.PENDING_AUTHORIZATION
+      ) {
+        this.logger.warn('[PIX_REFUND] Cannot refund - payment not paid', {
+          flow: 'refund',
+          action: 'refund_denied_not_paid',
+          paymentId: refund.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
+        })
+
+        return Refunds.deny(refund)
+      }
+
       this.logger.info('[PIX_REFUND] Refund started', {
         flow: 'refund',
         action: 'refund_started',
@@ -245,7 +329,7 @@ export default class BraspagConnector extends PaymentProvider<
         buyerEmail: storedPayment.buyerEmail,
         buyerName: storedPayment.buyerName,
         amountCents: storedPayment.amount,
-        braspagStatus: storedPayment.status,
+        braspagStatus: currentStatus,
       })
 
       const extended = (refund as unknown) as {
@@ -267,6 +351,10 @@ export default class BraspagConnector extends PaymentProvider<
       )
 
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+      await this.storageService.updatePaymentStatus(
+        storedPayment.pixPaymentId,
+        11
+      )
 
       this.logger.info('[PIX_REFUND] Refund approved', {
         flow: 'refund',
