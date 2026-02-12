@@ -21,7 +21,11 @@ import { executeAuthorization } from './flow'
 import { Clients } from './clients'
 import { Logger } from './tools/datadog/datadog'
 import { DatadogLoggerAdapter } from './tools/datadog/logger-adapter'
-import { ERROR_CODES } from './constants/payment-constants'
+import {
+  ERROR_CODES,
+  BRASPAG_STATUS,
+} from './constants/payment-constants'
+import { QueryPixStatusResponse } from './clients/braspag/types'
 import {
   PaymentConfigurationServiceFactory,
   PaymentStorageServiceFactory,
@@ -71,6 +75,7 @@ export default class BraspagConnector extends PaymentProvider<
       configService: this.configService,
       storageService: this.storageService,
       clientFactory: braspagClientFactory,
+      queryClient: this.context.clients.braspagQuery,
       context: this.context.vtex,
       logger: this.logger,
       ordersClient: this.context.clients.orders,
@@ -129,12 +134,22 @@ export default class BraspagConnector extends PaymentProvider<
       })
     }
 
+    const authExt = authorization as AuthorizationRequest & {
+      miniCart?: { buyer?: { document?: string; email?: string } }
+    }
+
+    const buyerDoc = authExt.miniCart?.buyer?.document?.replace(/[^\d]/g, '')
+
+    const buyerMail = authExt.miniCart?.buyer?.email
+
     this.logger.info('[PIX_AUTH] Authorization request received', {
       flow: 'authorization',
       action: 'authorization_started',
       paymentId: authorization.paymentId,
       orderId: authorization.orderId,
       transactionId: authorization.transactionId,
+      buyerDocument: buyerDoc,
+      buyerEmail: buyerMail,
       valueBRL: authorization.value,
       callbackUrl: authorization.callbackUrl,
     })
@@ -151,6 +166,8 @@ export default class BraspagConnector extends PaymentProvider<
         action: 'authorization_failed',
         paymentId: authorization.paymentId,
         orderId: authorization.orderId,
+        buyerDocument: buyerDoc,
+        buyerEmail: buyerMail,
         valueBRL: authorization.value,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -200,9 +217,11 @@ export default class BraspagConnector extends PaymentProvider<
     }
 
     const startTime = Date.now()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let storedPayment: any = null
 
     try {
-      const storedPayment = await this.storageService.getStoredPayment(
+      storedPayment = await this.storageService.getStoredPayment(
         refund.paymentId
       )
 
@@ -213,6 +232,87 @@ export default class BraspagConnector extends PaymentProvider<
           paymentId: refund.paymentId,
           paymentFound: !!storedPayment,
           paymentType: storedPayment?.type,
+          buyerDocument: storedPayment?.buyerDocument,
+        })
+
+        return Refunds.deny(refund)
+      }
+
+      let currentStatus = storedPayment.status ?? 0
+
+      if (this.context.clients.braspagQuery) {
+        try {
+          const paymentStatus =
+            await this.context.clients.braspagQuery.getTransactionByPaymentId<
+              QueryPixStatusResponse
+            >(storedPayment.pixPaymentId)
+
+          const braspagStatus = paymentStatus?.Payment?.Status
+
+          if (braspagStatus !== undefined) {
+            currentStatus = braspagStatus
+
+            if (braspagStatus !== storedPayment.status) {
+              await this.storageService.updatePaymentStatus(
+                refund.paymentId,
+                braspagStatus
+              )
+              await this.storageService.updatePaymentStatus(
+                storedPayment.pixPaymentId,
+                braspagStatus
+              )
+            }
+          }
+        } catch (queryError) {
+          this.logger.warn('[PIX_REFUND] Braspag query failed - using stored', {
+            flow: 'refund',
+            action: 'braspag_query_failed',
+            paymentId: refund.paymentId,
+            pixPaymentId: storedPayment.pixPaymentId,
+            error:
+              queryError instanceof Error
+                ? queryError.message
+                : String(queryError),
+          })
+        }
+      }
+
+      if (
+        currentStatus === BRASPAG_STATUS.REFUNDED ||
+        currentStatus === BRASPAG_STATUS.VOIDED
+      ) {
+        this.logger.info('[PIX_REFUND] Already processed at Braspag', {
+          flow: 'refund',
+          action: 'already_processed',
+          paymentId: refund.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          orderId: storedPayment.orderId,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
+        })
+
+        return Refunds.approve(refund, {
+          refundId: storedPayment.pixPaymentId,
+          code: currentStatus.toString(),
+          message:
+            currentStatus === BRASPAG_STATUS.REFUNDED
+              ? 'PIX payment already refunded'
+              : 'PIX payment already voided',
+        })
+      }
+
+      if (
+        currentStatus === BRASPAG_STATUS.NOT_FINISHED ||
+        currentStatus === BRASPAG_STATUS.PENDING ||
+        currentStatus === BRASPAG_STATUS.PENDING_AUTHORIZATION
+      ) {
+        this.logger.warn('[PIX_REFUND] Cannot refund - payment not paid', {
+          flow: 'refund',
+          action: 'refund_denied_not_paid',
+          paymentId: refund.paymentId,
+          pixPaymentId: storedPayment.pixPaymentId,
+          braspagStatus: currentStatus,
+          durationMs: Date.now() - startTime,
         })
 
         return Refunds.deny(refund)
@@ -224,8 +324,12 @@ export default class BraspagConnector extends PaymentProvider<
         paymentId: refund.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
         orderId: storedPayment.orderId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
+        buyerName: storedPayment.buyerName,
         amountCents: storedPayment.amount,
-        braspagStatus: storedPayment.status,
+        braspagStatus: currentStatus,
       })
 
       const extended = (refund as unknown) as {
@@ -247,6 +351,10 @@ export default class BraspagConnector extends PaymentProvider<
       )
 
       await this.storageService.updatePaymentStatus(refund.paymentId, 11)
+      await this.storageService.updatePaymentStatus(
+        storedPayment.pixPaymentId,
+        11
+      )
 
       this.logger.info('[PIX_REFUND] Refund approved', {
         flow: 'refund',
@@ -254,6 +362,9 @@ export default class BraspagConnector extends PaymentProvider<
         paymentId: refund.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
         orderId: storedPayment.orderId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
         braspagVoidStatus: voidResponse.Status,
         durationMs: Date.now() - startTime,
       })
@@ -268,6 +379,11 @@ export default class BraspagConnector extends PaymentProvider<
         flow: 'refund',
         action: 'refund_failed',
         paymentId: refund.paymentId,
+        pixPaymentId: storedPayment?.pixPaymentId,
+        orderId: storedPayment?.orderId,
+        vtexPaymentId: storedPayment?.vtexPaymentId,
+        buyerDocument: storedPayment?.buyerDocument,
+        buyerEmail: storedPayment?.buyerEmail,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         durationMs: Date.now() - startTime,
@@ -292,9 +408,10 @@ export default class BraspagConnector extends PaymentProvider<
       flow: 'webhook',
       action: 'inbound_received',
       paymentId: request.body?.PaymentId,
-      changeType: request.body?.ChangeType,
-      status: request.body?.Status,
       merchantOrderId: request.body?.MerchantOrderId,
+      changeType: request.body?.ChangeType,
+      notificationStatus: request.body?.Status,
+      notificationAmount: request.body?.Amount,
     })
 
     const vbaseClient = {

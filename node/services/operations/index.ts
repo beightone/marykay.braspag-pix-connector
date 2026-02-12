@@ -28,8 +28,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
   ): Promise<CancellationResponse> {
     const startTime = Date.now()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let storedPayment: any = null
+
     try {
-      const storedPayment = await this.deps.storageService.getStoredPayment(
+      storedPayment = await this.deps.storageService.getStoredPayment(
         cancellation.paymentId
       )
 
@@ -40,6 +43,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
           paymentId: cancellation.paymentId,
           paymentFound: !!storedPayment,
           paymentType: storedPayment?.type,
+          buyerDocument: storedPayment?.buyerDocument,
+          buyerEmail: storedPayment?.buyerEmail,
         })
 
         throw new Error('PIX payment not found or invalid payment type')
@@ -51,6 +56,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
         paymentId: cancellation.paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
         orderId: storedPayment.orderId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
+        buyerName: storedPayment.buyerName,
         storedStatus: storedPayment.status,
         amountCents: storedPayment.amount,
         createdAt: storedPayment.createdAt,
@@ -72,6 +81,8 @@ export class BraspagPixOperationsService implements PixOperationsService {
             action: 'payment_not_found_in_braspag',
             paymentId: cancellation.paymentId,
             pixPaymentId: storedPayment.pixPaymentId,
+            orderId: storedPayment.orderId,
+            buyerDocument: storedPayment.buyerDocument,
           })
         } else {
           throw error
@@ -97,6 +108,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
           action: 'already_refunded',
           paymentId: cancellation.paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
+          orderId: storedPayment.orderId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
           braspagStatus: currentStatus,
           durationMs: Date.now() - startTime,
         })
@@ -115,6 +130,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
           action: 'already_voided',
           paymentId: cancellation.paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
+          orderId: storedPayment.orderId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
           braspagStatus: currentStatus,
           durationMs: Date.now() - startTime,
         })
@@ -153,6 +172,9 @@ export class BraspagPixOperationsService implements PixOperationsService {
             paymentId: cancellation.paymentId,
             pixPaymentId: storedPayment.pixPaymentId,
             orderId: storedPayment.orderId,
+            vtexPaymentId: storedPayment.vtexPaymentId,
+            buyerDocument: storedPayment.buyerDocument,
+            buyerEmail: storedPayment.buyerEmail,
             previousBraspagStatus: currentStatus,
             voidStatus: voidResult?.Status,
             wasAlreadyPaid: currentStatus === BRASPAG_STATUS.PAID,
@@ -169,6 +191,9 @@ export class BraspagPixOperationsService implements PixOperationsService {
           paymentId: cancellation.paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
           orderId: storedPayment.orderId,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
           braspagStatus: currentStatus,
           wasAlreadyPaid: currentStatus === BRASPAG_STATUS.PAID,
           error:
@@ -214,6 +239,9 @@ export class BraspagPixOperationsService implements PixOperationsService {
         paymentId: cancellation.paymentId,
         pixPaymentId: payment.PaymentId,
         orderId: storedPayment.orderId,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
         previousStatus: storedPayment.status,
         braspagStatus: currentStatus,
         newStatus,
@@ -234,6 +262,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         flow: 'cancellation',
         action: 'cancellation_failed',
         paymentId: cancellation.paymentId,
+        orderId: storedPayment?.orderId,
+        pixPaymentId: storedPayment?.pixPaymentId,
+        vtexPaymentId: storedPayment?.vtexPaymentId,
+        buyerDocument: storedPayment?.buyerDocument,
+        buyerEmail: storedPayment?.buyerEmail,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         durationMs: Date.now() - startTime,
@@ -253,12 +286,13 @@ export class BraspagPixOperationsService implements PixOperationsService {
   ): Promise<SettlementResponse> {
     const startTime = Date.now()
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let storedPayment: any = null
+
     try {
       const { paymentId } = settlement
 
-      const storedPayment = await this.deps.storageService.getStoredPayment(
-        paymentId
-      )
+      storedPayment = await this.deps.storageService.getStoredPayment(paymentId)
 
       if (!storedPayment || storedPayment.type !== 'pix') {
         this.deps.logger.warn('[PIX_SETTLE] Payment not found in storage', {
@@ -267,14 +301,66 @@ export class BraspagPixOperationsService implements PixOperationsService {
           paymentId,
           paymentFound: !!storedPayment,
           paymentType: storedPayment?.type,
+          buyerDocument: storedPayment?.buyerDocument,
         })
 
         throw new Error('PIX payment not found or invalid payment type')
       }
 
-      const statusInfo = PaymentStatusHandler.getStatusInfo(
-        storedPayment.status ?? 0
-      )
+      let currentStatus = storedPayment.status ?? 0
+
+      if (this.deps.queryClient) {
+        try {
+          const paymentStatus =
+            await this.deps.queryClient.getTransactionByPaymentId<
+              QueryPixStatusResponse
+            >(storedPayment.pixPaymentId)
+
+          const braspagStatus = paymentStatus?.Payment?.Status
+
+          if (braspagStatus !== undefined) {
+            currentStatus = braspagStatus
+
+            if (braspagStatus !== storedPayment.status) {
+              await this.deps.storageService.updatePaymentStatus(
+                paymentId,
+                braspagStatus
+              )
+              await this.deps.storageService.updatePaymentStatus(
+                storedPayment.pixPaymentId,
+                braspagStatus
+              )
+              this.deps.logger.info(
+                '[PIX_SETTLE] Braspag status differs from stored - updated',
+                {
+                  flow: 'settlement',
+                  action: 'braspag_status_reconciled',
+                  paymentId,
+                  pixPaymentId: storedPayment.pixPaymentId,
+                  storedStatus: storedPayment.status,
+                  braspagStatus,
+                }
+              )
+            }
+          }
+        } catch (queryError) {
+          this.deps.logger.warn(
+            '[PIX_SETTLE] Braspag query failed - using stored status',
+            {
+              flow: 'settlement',
+              action: 'braspag_query_failed',
+              paymentId,
+              pixPaymentId: storedPayment.pixPaymentId,
+              error:
+                queryError instanceof Error
+                  ? queryError.message
+                  : String(queryError),
+            }
+          )
+        }
+      }
+
+      const statusInfo = PaymentStatusHandler.getStatusInfo(currentStatus)
 
       if (statusInfo.canSettle) {
         this.deps.logger.info('[PIX_SETTLE] Settlement approved', {
@@ -283,7 +369,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
           paymentId,
           pixPaymentId: storedPayment.pixPaymentId,
           orderId: storedPayment.orderId,
-          braspagStatus: storedPayment.status,
+          vtexPaymentId: storedPayment.vtexPaymentId,
+          buyerDocument: storedPayment.buyerDocument,
+          buyerEmail: storedPayment.buyerEmail,
+          buyerName: storedPayment.buyerName,
+          braspagStatus: currentStatus,
           statusDescription: statusInfo.statusDescription,
           amountCents: storedPayment.amount,
           settlementValueBRL: settlement.value,
@@ -294,7 +384,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
 
         return Settlements.approve(settlement, {
           settleId: storedPayment.pixPaymentId,
-          code: storedPayment.status?.toString() ?? '2',
+          code: currentStatus.toString(),
           message: 'PIX payment settled successfully',
         })
       }
@@ -305,7 +395,10 @@ export class BraspagPixOperationsService implements PixOperationsService {
         paymentId,
         pixPaymentId: storedPayment.pixPaymentId,
         orderId: storedPayment.orderId,
-        braspagStatus: storedPayment.status,
+        vtexPaymentId: storedPayment.vtexPaymentId,
+        buyerDocument: storedPayment.buyerDocument,
+        buyerEmail: storedPayment.buyerEmail,
+        braspagStatus: currentStatus,
         statusDescription: statusInfo.statusDescription,
         canSettle: statusInfo.canSettle,
         isPending: statusInfo.isPending,
@@ -314,7 +407,7 @@ export class BraspagPixOperationsService implements PixOperationsService {
       })
 
       return Settlements.deny(settlement, {
-        code: storedPayment.status?.toString() ?? 'INVALID_STATUS',
+        code: currentStatus.toString(),
         message: `PIX payment cannot be settled. Status: ${statusInfo.statusDescription}`,
       })
     } catch (error) {
@@ -322,6 +415,11 @@ export class BraspagPixOperationsService implements PixOperationsService {
         flow: 'settlement',
         action: 'settlement_failed',
         paymentId: settlement.paymentId,
+        orderId: storedPayment?.orderId,
+        pixPaymentId: storedPayment?.pixPaymentId,
+        vtexPaymentId: storedPayment?.vtexPaymentId,
+        buyerDocument: storedPayment?.buyerDocument,
+        buyerEmail: storedPayment?.buyerEmail,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         durationMs: Date.now() - startTime,

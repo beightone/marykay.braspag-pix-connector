@@ -22,6 +22,7 @@ import {
 } from './types'
 import { PaymentAuthorizationData } from '../payment-configuration/types'
 import { ExtractedOrderData } from '../../clients/orders'
+import { QueryPixStatusResponse } from '../../clients/braspag/types'
 
 export class BraspagPixAuthorizationService implements PixAuthorizationService {
   constructor(private readonly deps: PixAuthorizationServiceDependencies) {}
@@ -36,6 +37,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
     )
 
     if (existingPayment) {
+      const elapsedMs = existingPayment.createdAt
+        ? Date.now() - new Date(existingPayment.createdAt).getTime()
+        : undefined
+
       this.deps.logger.info(
         '[PIX_AUTH] Retry detected - returning stored payment',
         {
@@ -44,37 +49,131 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           paymentId: authorization.paymentId,
           orderId: authorization.orderId,
           pixPaymentId: existingPayment.pixPaymentId,
+          vtexPaymentId: existingPayment.vtexPaymentId,
           currentStatus: existingPayment.status,
+          buyerDocument: existingPayment.buyerDocument,
+          buyerEmail: existingPayment.buyerEmail,
+          buyerName: existingPayment.buyerName,
           createdAt: existingPayment.createdAt,
-          elapsedMs: existingPayment.createdAt
-            ? Date.now() - new Date(existingPayment.createdAt).getTime()
-            : undefined,
+          elapsedMs,
         }
       )
 
-      switch (existingPayment.status) {
+      let resolvedStatus = existingPayment.status
+
+      if (this.deps.queryClient) {
+        try {
+          const braspagResponse = await this.deps.queryClient.getTransactionByPaymentId<
+            QueryPixStatusResponse
+          >(existingPayment.pixPaymentId)
+
+          const braspagCurrentStatus = braspagResponse?.Payment?.Status
+
+          if (
+            braspagCurrentStatus !== undefined &&
+            braspagCurrentStatus !== resolvedStatus
+          ) {
+            this.deps.logger.info(
+              '[PIX_AUTH] Braspag status differs from stored - updating',
+              {
+                flow: 'authorization',
+                action: 'retry_status_reconciled',
+                paymentId: authorization.paymentId,
+                orderId: authorization.orderId,
+                pixPaymentId: existingPayment.pixPaymentId,
+                vtexPaymentId: existingPayment.vtexPaymentId,
+                storedStatus: resolvedStatus,
+                braspagStatus: braspagCurrentStatus,
+                buyerDocument: existingPayment.buyerDocument,
+                buyerEmail: existingPayment.buyerEmail,
+                elapsedMs,
+              }
+            )
+
+            resolvedStatus = braspagCurrentStatus
+
+            // Update storage so future retries don't need to query again
+            await this.deps.storageService.updatePaymentStatus(
+              authorization.paymentId,
+              braspagCurrentStatus
+            )
+
+            // Also update the Braspag PaymentId key
+            await this.deps.storageService.updatePaymentStatus(
+              existingPayment.pixPaymentId,
+              braspagCurrentStatus
+            )
+          } else {
+            this.deps.logger.info(
+              '[PIX_AUTH] Braspag status confirmed - matches stored',
+              {
+                flow: 'authorization',
+                action: 'retry_status_confirmed',
+                paymentId: authorization.paymentId,
+                orderId: authorization.orderId,
+                pixPaymentId: existingPayment.pixPaymentId,
+                braspagStatus: braspagCurrentStatus,
+                storedStatus: resolvedStatus,
+                buyerDocument: existingPayment.buyerDocument,
+                elapsedMs,
+              }
+            )
+          }
+        } catch (queryError) {
+          this.deps.logger.warn(
+            '[PIX_AUTH] Failed to query Braspag on retry - using stored status',
+            {
+              flow: 'authorization',
+              action: 'retry_braspag_query_failed',
+              paymentId: authorization.paymentId,
+              orderId: authorization.orderId,
+              pixPaymentId: existingPayment.pixPaymentId,
+              storedStatus: resolvedStatus,
+              buyerDocument: existingPayment.buyerDocument,
+              error:
+                queryError instanceof Error
+                  ? queryError.message
+                  : String(queryError),
+              elapsedMs,
+            }
+          )
+        }
+      }
+
+      switch (resolvedStatus) {
         case BRASPAG_STATUS.PAID:
+          this.deps.logger.info(
+            '[PIX_AUTH] Retry resolved as PAID - approving',
+            {
+              flow: 'authorization',
+              action: 'retry_approved',
+              paymentId: authorization.paymentId,
+              orderId: authorization.orderId,
+              pixPaymentId: existingPayment.pixPaymentId,
+              vtexPaymentId: existingPayment.vtexPaymentId,
+              buyerDocument: existingPayment.buyerDocument,
+              buyerEmail: existingPayment.buyerEmail,
+              elapsedMs,
+            }
+          )
+
           return Authorizations.approve(authorization, {
             tid: existingPayment.pixPaymentId,
             authorizationId: existingPayment.pixPaymentId,
           })
 
-        case BRASPAG_STATUS.NOT_FINISHED:
-          return Authorizations.pending(authorization, {
-            tid: existingPayment.pixPaymentId,
-            delayToCancel: PAYMENT_DELAYS.PIX_CANCEL_TIMEOUT,
-            delayToAutoSettle: PAYMENT_DELAYS.AUTO_SETTLE_DELAY,
-            delayToAutoSettleAfterAntifraud:
-              PAYMENT_DELAYS.AUTO_SETTLE_AFTER_ANTIFRAUD,
-          })
-
         case BRASPAG_STATUS.VOIDED:
+        case BRASPAG_STATUS.DENIED:
+        case BRASPAG_STATUS.ABORTED:
           return Authorizations.deny(authorization, {
             tid: existingPayment.pixPaymentId,
             code: ERROR_CODES.DENIED,
             message: RESPONSE_MESSAGES.PIX_CANCELLED,
           })
 
+        case BRASPAG_STATUS.NOT_FINISHED:
+        case BRASPAG_STATUS.PENDING:
+        case BRASPAG_STATUS.PENDING_AUTHORIZATION:
         default:
           return Authorizations.pending(authorization, {
             tid: existingPayment.pixPaymentId,
@@ -92,9 +191,31 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         value: string
       }>
       paymentMethod?: string
-      miniCart?: { paymentMethod?: string }
+      miniCart?: {
+        paymentMethod?: string
+        buyer?: {
+          firstName?: string
+          lastName?: string
+          document?: string
+          email?: string
+          isCorporate?: boolean
+          corporateDocument?: string
+          corporateName?: string
+        }
+      }
       orderId?: string
     }
+
+    // Extract buyer info for logging and storage
+    const buyer = extended.miniCart?.buyer
+    const buyerDocument = buyer?.isCorporate
+      ? buyer?.corporateDocument?.replace(/[^\d]/g, '')
+      : buyer?.document?.replace(/[^\d]/g, '')
+
+    const buyerEmail = buyer?.email
+    const buyerName = buyer?.isCorporate
+      ? buyer?.corporateName
+      : [buyer?.firstName, buyer?.lastName].filter(Boolean).join(' ') || undefined
 
     const authData: PaymentAuthorizationData = {
       merchantSettings: extended.merchantSettings,
@@ -140,6 +261,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           action: 'order_data_extracted',
           paymentId: authorization.paymentId,
           orderId: extended.orderId,
+          buyerDocument,
+          buyerEmail,
+          buyerName,
           consultantId: orderData?.consultantId,
           braspagId: orderData?.braspagId,
           splitProfitPct: orderData?.splitProfitPct,
@@ -156,6 +280,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           action: 'order_data_extraction_failed',
           paymentId: authorization.paymentId,
           orderId: extended.orderId,
+          buyerDocument,
+          buyerEmail,
           error: error instanceof Error ? error.message : String(error),
         })
         orderData = null
@@ -193,6 +319,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       paymentId: authorization.paymentId,
       orderId: authorization.orderId,
       transactionId: authorization.transactionId,
+      buyerDocument,
+      buyerEmail,
+      buyerName,
       valueBRL: authorization.value,
       amountCents: pixRequest.Payment?.Amount,
       merchantOrderId: pixRequest.MerchantOrderId,
@@ -216,6 +345,8 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
           action: 'braspag_empty_response',
           paymentId: authorization.paymentId,
           orderId: authorization.orderId,
+          buyerDocument,
+          buyerEmail,
           durationMs: Date.now() - startTime,
         }
       )
@@ -233,6 +364,9 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
         paymentId: authorization.paymentId,
         pixPaymentId: payment.PaymentId,
         orderId: authorization.orderId,
+        buyerDocument,
+        buyerEmail,
+        buyerName,
         valueBRL: authorization.value,
         amountCents: pixRequest.Payment?.Amount,
         returnCode: paymentAny.ReturnCode,
@@ -270,6 +404,10 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       orderId: authorization.orderId,
       vtexPaymentId: authorization.paymentId,
       callbackUrl: authorization.callbackUrl,
+      amount: pixRequest.Payment?.Amount,
+      buyerDocument,
+      buyerEmail,
+      buyerName,
       ...(splitSummary.length > 0 && { splitPayments: splitSummary }),
     }
 
@@ -289,7 +427,11 @@ export class BraspagPixAuthorizationService implements PixAuthorizationService {
       pixPaymentId: payment.PaymentId,
       tid: payment.Tid,
       orderId: authorization.orderId,
+      vtexPaymentId: authorization.paymentId,
       merchantOrderId: pixRequest.MerchantOrderId,
+      buyerDocument,
+      buyerEmail,
+      buyerName,
       valueBRL: authorization.value,
       amountCents: pixRequest.Payment?.Amount,
       braspagStatus: payment.Status,
@@ -326,6 +468,7 @@ export class PixAuthorizationServiceFactory {
       configService: params.configService,
       storageService: params.storageService,
       clientFactory: params.clientFactory,
+      queryClient: params.queryClient,
       context: params.context,
       logger: params.logger,
       ordersClient: params.ordersClient,
